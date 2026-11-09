@@ -1,6 +1,81 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" fill="none">
-  <path d="M64 16L22 34V62C22 88.5 39.9 111.8 64 118C88.1 111.8 106 88.5 106 62V34L64 16Z" stroke="#38BDF8" stroke-width="6" stroke-linejoin="round" fill="#0F172A" fill-opacity="0.85"/>
-  <path d="M64 28L34 41V61.5C34 81.4 46.8 99.1 64 104.5C81.2 99.1 94 81.4 94 61.5V41L64 28Z" stroke="#818CF8" stroke-width="3" stroke-linejoin="round"/>
-  <circle cx="64" cy="63" r="16" stroke="#34D399" stroke-width="5"/>
-  <path d="M57 63L62 68L72 58" stroke="#34D399" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none">
+  <defs>
+    <!-- Ambient Core Glow -->
+    <radialGradient id="ambientGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.25"/>
+      <stop offset="60%" stop-color="#6366F1" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#0F172A" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Caliper Left Gradient (Inward Compression) -->
+    <linearGradient id="caliperLeftGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F0FF"/>
+      <stop offset="50%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+
+    <!-- Caliper Right Gradient (Inward Compression) -->
+    <linearGradient id="caliperRightGrad" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#A78BFA"/>
+      <stop offset="50%" stop-color="#818CF8"/>
+      <stop offset="100%" stop-color="#4F46E5"/>
+    </linearGradient>
+
+    <!-- Vault Outer Stroke Gradient -->
+    <linearGradient id="vaultStrokeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F0FF"/>
+      <stop offset="50%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#818CF8"/>
+    </linearGradient>
+
+    <!-- Core Nexus Glow Gradient -->
+    <linearGradient id="nexusGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#6EE7B7"/>
+      <stop offset="50%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background Ambient Aura -->
+  <circle cx="128" cy="128" r="108" fill="url(#ambientGlow)"/>
+
+  <!-- Geometric Guide Ring / Context Horizon Ring (Subtle Technical Accent) -->
+  <circle cx="128" cy="128" r="92" stroke="#334155" stroke-width="1.5" stroke-dasharray="4 8" opacity="0.45"/>
+
+  <!-- Left Precision Compression Caliper (Context Horizon Closing Inward) -->
+  <path d="M86 46L42 90V166L86 210L100 196L66 162V94L100 60L86 46Z" fill="url(#caliperLeftGrad)"/>
+  <!-- Left Inward Precision Vector Wedge -->
+  <polygon points="104,128 84,112 84,144" fill="#00F0FF"/>
+
+  <!-- Right Precision Compression Caliper (Context Horizon Closing Inward) -->
+  <path d="M170 46L214 90V166L170 210L156 196L190 162V94L156 60L170 46Z" fill="url(#caliperRightGrad)"/>
+  <!-- Right Inward Precision Vector Wedge -->
+  <polygon points="152,128 172,112 172,144" fill="#A78BFA"/>
+
+  <!-- Central Anti-Amnesia Monolith / The Unyielding Ground Truth Vault -->
+  <!-- Outer Facet Rhombus -->
+  <polygon points="128,64 168,128 128,192 88,128" fill="#0B132B" stroke="url(#vaultStrokeGrad)" stroke-width="4.5" stroke-linejoin="round"/>
+
+  <!-- Inner High-Density State Prism -->
+  <polygon points="128,84 152,128 128,172 104,128" fill="#0F172A" stroke="#34D399" stroke-width="2.5" stroke-linejoin="round"/>
+
+  <!-- Unbroken Continuity Core (Vertical Anti-Amnesia Spine) -->
+  <line x1="128" y1="92" x2="128" y2="164" stroke="url(#nexusGrad)" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Ground-Truth Data Strata (Horizontal Memory Ledgers) -->
+  <!-- Top: Verbatim Prompts -->
+  <line x1="114" y1="116" x2="142" y2="116" stroke="#38BDF8" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Center: Locked Decisions (Primary Anchor) -->
+  <line x1="110" y1="128" x2="146" y2="128" stroke="#6EE7B7" stroke-width="3" stroke-linecap="round"/>
+  <!-- Bottom: Disk State SHA-256 -->
+  <line x1="114" y1="140" x2="142" y2="140" stroke="#38BDF8" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- Vertex Anchor Pins (Cryptographic Checkpoints) -->
+  <circle cx="128" cy="64" r="4.5" fill="#00F0FF" stroke="#0B132B" stroke-width="1.5"/>
+  <circle cx="168" cy="128" r="4.5" fill="#818CF8" stroke="#0B132B" stroke-width="1.5"/>
+  <circle cx="128" cy="192" r="4.5" fill="#34D399" stroke="#0B132B" stroke-width="1.5"/>
+  <circle cx="88" cy="128" r="4.5" fill="#00F0FF" stroke="#0B132B" stroke-width="1.5"/>
+
+  <!-- Center Core Fusion Particle -->
+  <circle cx="128" cy="128" r="3" fill="#FFFFFF"/>
 </svg>
