@@ -1,0 +1,15 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary and atomic swap files
+*.tmp
+*.tmp.*
+
+# Antigravity session generated runtime
+.system_generated/
+
+# OS metadata
+.DS_Store
+Thumbs.db
