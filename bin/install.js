@@ -129,18 +129,25 @@ function main() {
   }
 
   if (isVerifyOnly) {
-    console.log(`[*] Running strict installation verification on: ${targetDir}`);
-    if (!fs.existsSync(targetDir)) {
-      console.error(`[!] Verification failed: target directory does not exist: ${targetDir}`);
-      process.exit(1);
+    let verifyDir = targetDir;
+    if (!fs.existsSync(verifyDir)) {
+      if (!isWorkspace && fs.existsSync(path.join(PACKAGE_ROOT, 'plugin.json')) && fs.existsSync(path.join(PACKAGE_ROOT, 'scripts', 'test_compaction_guard.py'))) {
+        console.log(`[*] Target ${targetDir} not installed; verifying repository package directly at ${PACKAGE_ROOT}`);
+        verifyDir = PACKAGE_ROOT;
+      } else {
+        console.error(`[!] Verification failed: target directory does not exist: ${targetDir}`);
+        process.exit(1);
+      }
     }
 
+    console.log(`[*] Running strict installation verification on: ${verifyDir}`);
+
     const requiredFiles = [
-      path.join(targetDir, 'plugin.json'),
-      path.join(targetDir, 'hooks.json'),
-      path.join(targetDir, 'rules', 'AGENTS.md'),
-      path.join(targetDir, 'scripts', 'compaction_guard.py'),
-      path.join(targetDir, 'scripts', 'test_compaction_guard.py')
+      path.join(verifyDir, 'plugin.json'),
+      path.join(verifyDir, 'hooks.json'),
+      path.join(verifyDir, 'rules', 'AGENTS.md'),
+      path.join(verifyDir, 'scripts', 'compaction_guard.py'),
+      path.join(verifyDir, 'scripts', 'test_compaction_guard.py')
     ];
 
     for (const rf of requiredFiles) {
@@ -150,7 +157,7 @@ function main() {
       }
     }
 
-    const testScript = path.join(targetDir, 'scripts', 'test_compaction_guard.py');
+    const testScript = path.join(verifyDir, 'scripts', 'test_compaction_guard.py');
     console.log(`[*] Executing verification test suite via ${pyCmd}...`);
     const testRes = spawnSync(pyCmd, [testScript], { stdio: 'inherit' });
     if (testRes.status !== 0) {

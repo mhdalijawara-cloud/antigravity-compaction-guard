@@ -33,6 +33,7 @@ jobs:
       - name: Run verification tests
         run: |
           python ./scripts/test_compaction_guard.py -v
+          node ./bin/install.js
           node ./bin/install.js --verify
 
       - name: Create release archives
