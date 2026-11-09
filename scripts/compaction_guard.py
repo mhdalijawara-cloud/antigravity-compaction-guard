@@ -30,7 +30,7 @@ import time
 import traceback
 from typing import Any
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 STATE_SCHEMA_VERSION = 2
 MAX_RECENT_USER_REQUESTS = 10
 MAX_QA_DECISIONS = 15
@@ -138,7 +138,7 @@ def file_lock(lock_path: Path, timeout_seconds: float = 5.0):
                     break
                 time.sleep(delay)
                 delay = min(delay * 1.5, 0.1)
-        yield
+        yield locked
     finally:
         if lock_fh is not None:
             try:
@@ -1235,7 +1235,72 @@ def handle_purge(
         except OSError:
             pass
 
-    print(f"\n[✓] Purge complete: {purged_count} file(s) processed ({total_bytes} bytes).")
+    print(f"\n[OK] Purge complete: {purged_count} file(s) processed ({total_bytes} bytes).")
+    return 0
+
+
+def handle_doctor() -> int:
+    """P2: Diagnostic health check verifying environment, interpreter, locking, and files."""
+    print("============================================================")
+    print(f"  Compaction Guard Doctor v{VERSION}")
+    print("============================================================\n")
+    all_ok = True
+
+    # 1. Python version check
+    py_ver = sys.version_info
+    py_str = f"{py_ver.major}.{py_ver.minor}.{py_ver.micro}"
+    if py_ver >= (3, 10):
+        print(f"[OK] Python Interpreter: {py_str} (>= 3.10 required) -> PASS")
+    else:
+        print(f"[FAIL] Python Interpreter: {py_str} (< 3.10) -> FAIL")
+        all_ok = False
+
+    # 2. File lock check
+    test_lock = Path.cwd() / ".doctor_test.lock"
+    try:
+        with file_lock(test_lock, timeout_seconds=1.0) as acquired:
+            if acquired:
+                print(f"[OK] Advisory OS File Lock ({'msvcrt' if sys.platform == 'win32' else 'fcntl'}) -> PASS")
+            else:
+                print("[FAIL] Advisory OS File Lock: acquisition timed out -> FAIL")
+                all_ok = False
+    except Exception as e:
+        print(f"[FAIL] Advisory OS File Lock error: {e} -> FAIL")
+        all_ok = False
+    finally:
+        if test_lock.exists():
+            try:
+                test_lock.unlink()
+            except OSError:
+                pass
+
+    # 3. Installation presence check
+    global_plugin = Path.home() / ".gemini" / "config" / "plugins" / "compaction-guard"
+    workspace_plugin = Path.cwd() / ".agents" / "plugins" / "compaction-guard"
+    for label, p in [("Global", global_plugin), ("Workspace", workspace_plugin)]:
+        manifest = p / "plugin.json"
+        hooks = p / "hooks.json"
+        if manifest.exists() and hooks.exists():
+            print(f"[OK] Installation ({label}): present at {p}")
+        else:
+            print(f"[-] Installation ({label}): not installed at {p}")
+
+    print("\n" + ("=" * 60))
+    if all_ok:
+        print("[OK] Compaction Guard Doctor: System is healthy and operational.\n")
+        return 0
+    else:
+        print("[!] Compaction Guard Doctor: One or more health checks failed.\n")
+        return 1
+
+
+def handle_status() -> int:
+    """P2: Print quick runtime status of active plugin and installations."""
+    print(f"Compaction Guard v{VERSION} -- Monolith & Modular Facade")
+    global_plugin = Path.home() / ".gemini" / "config" / "plugins" / "compaction-guard"
+    workspace_plugin = Path.cwd() / ".agents" / "plugins" / "compaction-guard"
+    print(f"Global plugin:    {'ACTIVE' if (global_plugin / 'plugin.json').exists() else 'NOT INSTALLED'} ({global_plugin})")
+    print(f"Workspace plugin: {'ACTIVE' if (workspace_plugin / 'plugin.json').exists() else 'NOT INSTALLED'} ({workspace_plugin})")
     return 0
 
 
@@ -1253,13 +1318,19 @@ def main(argv: list[str] | None = None) -> int:
     if mode in ("--help", "-h", "help"):
         sys.stdout.write(
             f"Compaction Guard v{VERSION} — Deterministic Session Evidence & Recovery Engine\n"
-            "Usage: compaction_guard.py [post-tool | pre-invocation | stop | inspect <path> | version]\n"
+            "Usage: compaction_guard.py [post-tool | pre-invocation | stop | inspect <path> | purge | doctor | status | version]\n"
         )
         return 0
 
     if mode in ("--version", "-v", "version"):
         sys.stdout.write(f"compaction-guard v{VERSION}\n")
         return 0
+
+    if mode == "doctor":
+        return handle_doctor()
+
+    if mode == "status":
+        return handle_status()
 
     if mode == "inspect":
         if len(args) < 2:

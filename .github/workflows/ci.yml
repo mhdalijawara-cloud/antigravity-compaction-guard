@@ -35,6 +35,9 @@ jobs:
       - name: Run Python unit tests
         run: python ./scripts/test_compaction_guard.py -v
 
+      - name: Run Shadow Differential Parity tests
+        run: python ./scripts/test_differential_parity.py -v
+
       - name: Test CLI flags
         run: |
           python ./scripts/compaction_guard.py --version

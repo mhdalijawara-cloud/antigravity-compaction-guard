@@ -88,9 +88,9 @@ Stage pending tool calls          Confirm execution (status != ERROR)
 | Layer | Subsystem | Module | Responsibility |
 | :--- | :--- | :--- | :--- |
 | **L1** | **Host Hook Interceptor** | [`hooks.json`](./hooks.json) | Mounts native lifecycle hooks (`PostToolUse`, `PreInvocation`, `Stop`). Imposes 0 prompt token overhead on steady-state turns. |
-| **L2** | **Concurrency-Safe State Machine** | [`scripts/compaction_guard.py`](./scripts/compaction_guard.py) (`post-tool`) | Tails `transcript_full.jsonl` via buffered byte-offset streaming. Protected by cross-process file locks (`msvcrt`/`fcntl`) to eliminate lost updates. Manages state persistence in `.system_generated/compaction_guard_state.json`. |
-| **L3** | **Dual-Digest Disk Auditor** | [`scripts/compaction_guard.py`](./scripts/compaction_guard.py) (`pre-invocation`) | Enforces two-phase confirmation (stages pending calls, commits confirmed mutations). Compares full 64-char baseline SHA-256 digests against recovery-time disk observations to detect external drift. |
-| **L4** | **Safety Guard & Circuit Breaker** | [`scripts/compaction_guard.py`](./scripts/compaction_guard.py) (`stop`) & [`rules/AGENTS.md`](./rules/AGENTS.md) | Injects structured provenance capsules separating trusted guard directives from untrusted session data. Bounds continuation vetoes to at most 1 per checkpoint event. |
+| **L2** | **Concurrency-Safe State Machine** | [`src/compaction_guard/`](./src/compaction_guard/) & [`scripts/compaction_guard.py`](./scripts/compaction_guard.py) (`post-tool`) | Tails `transcript_full.jsonl` via buffered byte-offset streaming. Protected by cross-process file locks (`msvcrt`/`fcntl`) to eliminate lost updates. Manages state persistence in `.system_generated/compaction_guard_state.json`. |
+| **L3** | **Dual-Digest Disk Auditor** | [`src/compaction_guard/integrity.py`](./src/compaction_guard/integrity.py) (`pre-invocation`) | Enforces two-phase confirmation (stages pending calls, commits confirmed mutations). Compares full 64-char baseline SHA-256 digests against recovery-time disk observations to detect external drift. |
+| **L4** | **Safety Guard & Circuit Breaker** | [`src/compaction_guard/hooks.py`](./src/compaction_guard/hooks.py) (`stop`) & [`rules/AGENTS.md`](./rules/AGENTS.md) | Injects structured provenance capsules separating trusted guard directives from untrusted session data. Bounds continuation vetoes to at most 1 per checkpoint event. |
 
 ---
 
@@ -262,6 +262,24 @@ Hooks are automatically registered in [`hooks.json`](./hooks.json) and loaded up
 
 ## Diagnostics & Testing
 
+### CLI Environment Doctor & Health Check
+
+Verify Python environment, cross-process OS locking, and plugin installations:
+
+```bash
+python ./scripts/compaction_guard.py doctor
+# or via modular package entry point:
+python -m src.compaction_guard doctor
+```
+
+### CLI Plugin Status
+
+Inspect active global and workspace-local installations:
+
+```bash
+python ./scripts/compaction_guard.py status
+```
+
 ### CLI Diagnostic Inspector
 
 Inspect runway consumption, checkpoint counts, and recovery state directly from terminal:
@@ -282,7 +300,9 @@ python ./scripts/compaction_guard.py purge --older-than-days 7
 python ./scripts/compaction_guard.py purge --dry-run
 ```
 
-### Test Suite Execution
+### Test Suites Execution
+
+#### 1. Unit & Adversarial Test Suite (33 Tests)
 
 Run the comprehensive unit and adversarial test suite:
 
@@ -303,6 +323,21 @@ The 33-test suite validates:
 - **P1-05:** Amnesia classifier statistical confusion matrix validation (Recall $\ge 95\%$, FPR $\le 5\%$)
 - **P1-07:** Subprocess runtime integration harness streaming JSON payloads over stdin/stdout
 - **P1-08:** Bound state retention and CLI retention purge policy
+
+#### 2. Shadow Differential Parity Test Suite (5 Tests)
+
+Validate 100% behavioral parity between the monolithic runtime facade and the modular domain package (`src/compaction_guard/`):
+
+```bash
+python ./scripts/test_differential_parity.py -v
+```
+
+Differential tests assert zero-drift across:
+- **P2-01:** State schema default values and formal validation contracts
+- **P2-02:** Code symbol extraction across Python, TypeScript, Rust, Go, Java, and C#
+- **P2-03:** Path canonicalization and workspace anti-traversal boundary containment
+- **P2-04:** Multi-step complex session trajectory replay and recovery capsule generation
+- **P2-05:** Stop hook circuit breaker amnesia decisions on identical input payloads
 
 ---
 

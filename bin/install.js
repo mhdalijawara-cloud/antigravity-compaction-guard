@@ -10,7 +10,7 @@ const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
 
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const PACKAGE_ROOT = path.resolve(__dirname, '..');
 
 function printBanner() {
@@ -160,7 +160,8 @@ function main() {
       path.join(verifyDir, 'hooks.json'),
       path.join(verifyDir, 'rules', 'AGENTS.md'),
       path.join(verifyDir, 'scripts', 'compaction_guard.py'),
-      path.join(verifyDir, 'scripts', 'test_compaction_guard.py')
+      path.join(verifyDir, 'scripts', 'test_compaction_guard.py'),
+      path.join(verifyDir, 'src', 'compaction_guard', '__init__.py')
     ];
 
     for (const rf of requiredFiles) {
@@ -176,6 +177,16 @@ function main() {
     if (testRes.status !== 0) {
       console.error(`[!] Verification failed: test suite exited with code ${testRes.status}`);
       process.exit(testRes.status || 1);
+    }
+
+    const parityScript = path.join(verifyDir, 'scripts', 'test_differential_parity.py');
+    if (fs.existsSync(parityScript)) {
+      console.log(`[*] Executing shadow differential parity suite via ${pyCmd}...`);
+      const parityRes = spawnSync(pyCmd, [parityScript], { stdio: 'inherit' });
+      if (parityRes.status !== 0) {
+        console.error(`[!] Verification failed: parity suite exited with code ${parityRes.status}`);
+        process.exit(parityRes.status || 1);
+      }
     }
 
     console.log(`\n[✓] Verification passed! Compaction Guard v${VERSION} is structurally intact and fully operational.\n`);

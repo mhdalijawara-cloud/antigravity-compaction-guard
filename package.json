@@ -1,6 +1,6 @@
 {
   "name": "antigravity-compaction-guard",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Deterministic session evidence and recovery engine for Google Antigravity that prevents post-compaction context drift, captures dual-digest baseline file hashes, and enforces process-locked state boundaries across auto-compaction checkpoints.",
   "main": "bin/install.js",
   "bin": {
@@ -37,6 +37,7 @@
     "plugin.json",
     "rules",
     "scripts",
+    "src",
     "assets",
     "LICENSE",
     "README.md"
