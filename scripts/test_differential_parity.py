@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Shadow Differential Testing Harness: Monolith vs Modular Engine.
 
-Mathematically validates that the modular engine in src/compaction_guard/ produces
+Mathematically validates that the modular engine in src/ produces
 100% byte-for-byte and logical parity against the monolithic scripts/compaction_guard.py.
 """
 
@@ -24,10 +24,10 @@ spec_mono = importlib.util.spec_from_file_location("compaction_guard_monolith", 
 monolith = importlib.util.module_from_spec(spec_mono)
 spec_mono.loader.exec_module(monolith)
 
-# 2. Load modular package from src/compaction_guard/
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
-import compaction_guard as modular
+# 2. Load modular package from src/
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+import src as modular
 
 
 class TestShadowDifferentialParity(unittest.TestCase):

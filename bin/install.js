@@ -161,7 +161,7 @@ function main() {
       path.join(verifyDir, 'rules', 'AGENTS.md'),
       path.join(verifyDir, 'scripts', 'compaction_guard.py'),
       path.join(verifyDir, 'scripts', 'test_compaction_guard.py'),
-      path.join(verifyDir, 'src', 'compaction_guard', '__init__.py')
+      path.join(verifyDir, 'src', '__init__.py')
     ];
 
     for (const rf of requiredFiles) {
