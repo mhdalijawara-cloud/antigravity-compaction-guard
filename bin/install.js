@@ -42,7 +42,7 @@ function copyDirectory(src, dest) {
   }
 
   const entries = fs.readdirSync(src, { withFileTypes: true });
-  const skipList = new Set(['.git', '.github', 'bin', 'node_modules', '__pycache__', '.system_generated']);
+  const skipList = new Set(['.git', '.github', 'node_modules', '__pycache__', '.system_generated']);
 
   for (const entry of entries) {
     if (skipList.has(entry.name) || entry.name.endsWith('.tmp') || entry.name.endsWith('.pyc') || entry.name.endsWith('.lock')) {

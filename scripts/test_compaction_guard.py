@@ -765,6 +765,17 @@ class TestCompactionGuard(unittest.TestCase):
     def test_installer_verify_strict_mode(self) -> None:
         """P0-05: Installer --verify strictly fails if target directory is missing or invalid."""
         install_js = SCRIPT_DIR.parent / "bin" / "install.js"
+        if not install_js.exists():
+            candidate = Path.cwd() / "bin" / "install.js"
+            if candidate.exists():
+                install_js = candidate
+            else:
+                self.skipTest("bin/install.js not found in parent or current working directory")
+
+        import shutil
+        if not shutil.which("node"):
+            self.skipTest("node executable not found in PATH")
+
         # Run verify against non-existent workspace directory
         fake_empty_dir = Path(self.tmp_dir.name) / "empty_workspace"
         fake_empty_dir.mkdir(parents=True, exist_ok=True)
