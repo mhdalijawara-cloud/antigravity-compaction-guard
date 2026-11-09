@@ -1,7 +1,8 @@
 # Antigravity Compaction Guard
 
-[![CI](https://github.com/mhdalijawara-cloud/antigravity-compaction-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/mhdalijawara-cloud/antigravity-compaction-guard/actions/workflows/ci.yml)
+[![CI](https://github.com/mhdalijawara-cloud/antigravity-compaction-guard/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mhdalijawara-cloud/antigravity-compaction-guard/actions/workflows/ci.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/mhdalijawara-cloud/antigravity-compaction-guard?color=blue)](https://github.com/mhdalijawara-cloud/antigravity-compaction-guard/releases)
+[![npm version](https://img.shields.io/npm/v/antigravity-compaction-guard?color=blue)](https://www.npmjs.com/package/antigravity-compaction-guard)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Antigravity: 2.0](https://img.shields.io/badge/Antigravity-2.0%2B%20(v2.29.0)-orange.svg)](plugin.json)
 [![Python: 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
