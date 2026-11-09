@@ -39,7 +39,7 @@ When an Antigravity conversation trajectory approaches its context boundary (~25
 3. **Mid-Session Re-Bootstrapping:** Agents often lose session continuity post-compaction, emitting generic onboarding greetings (*"How can I help you today?"*) or asking to re-confirm roles, tasks, and project scopes mid-flight.
 
 > [!NOTE]
-> Because native `PreCompact` and `PostCompact` hooks are not yet exposed by the platform (upstream feature request `#1317`), compaction cannot be intercepted beforehand. Compaction Guard provides a deterministic continuous recorder and post-checkpoint ground truth enforcement layer to resolve these limitations with **zero token overhead** during normal execution turns.
+> Because native `PreCompact` and `PostCompact` hooks are not yet exposed by the platform, compaction cannot be intercepted beforehand. Compaction Guard provides a deterministic continuous recorder and post-checkpoint ground truth enforcement layer to resolve these limitations with **zero token overhead** during normal execution turns.
 
 ---
 
