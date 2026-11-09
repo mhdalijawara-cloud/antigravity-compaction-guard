@@ -270,6 +270,18 @@ Inspect runway consumption, checkpoint counts, and recovery state directly from 
 python ./scripts/compaction_guard.py inspect "<path-to-transcript.jsonl>"
 ```
 
+### CLI State Retention Maintenance & Purge
+
+Prune stale swap files, expired state backups, and quarantined corrupt files:
+
+```bash
+# Clean up artifacts older than 7 days (default)
+python ./scripts/compaction_guard.py purge --older-than-days 7
+
+# Dry-run preview of files that would be removed
+python ./scripts/compaction_guard.py purge --dry-run
+```
+
 ### Test Suite Execution
 
 Run the comprehensive unit and adversarial test suite:
@@ -278,13 +290,19 @@ Run the comprehensive unit and adversarial test suite:
 python ./scripts/test_compaction_guard.py -v
 ```
 
-The test suite validates:
-- Two-phase mutation confirmation and error rejection
-- Dual-digest baseline diffing (`UNCHANGED` vs `MODIFIED_EXTERNALLY`)
-- Cross-platform process file locking (`msvcrt` / `fcntl`)
-- Structured provenance enclosure and prompt injection fences
-- Universal and multi-lingual amnesia pattern recognition
-- Monotonic byte runway telemetry and multi-compaction replay
+The 33-test suite validates:
+- **P0-01:** Two-phase mutation confirmation and execution error rejection
+- **P0-02:** Dual-digest baseline diffing (`UNCHANGED` vs `MODIFIED_EXTERNALLY`)
+- **P0-03:** Cross-platform process file locking (`msvcrt` / `fcntl`)
+- **P0-04 & P0-05:** Dynamic interpreter configuration and strict installer verification
+- **P0-06:** Structured provenance enclosure and prompt injection fences
+- **P1-01:** State corruption quarantine (`.corrupt.<timestamp>.json`), atomic `.bak` fallback, and self-healing transcript reconstruction
+- **P1-02:** Workspace containment and anti-traversal boundary protection (redacting out-of-bounds paths)
+- **P1-03:** Best-effort structural symbol hints for Java & C# methods within 64KB sampling limits
+- **P1-04:** Calibrated heuristic byte runway telemetry with explicit uncertainty notices
+- **P1-05:** Amnesia classifier statistical confusion matrix validation (Recall $\ge 95\%$, FPR $\le 5\%$)
+- **P1-07:** Subprocess runtime integration harness streaming JSON payloads over stdin/stdout
+- **P1-08:** Bound state retention and CLI retention purge policy
 
 ---
 

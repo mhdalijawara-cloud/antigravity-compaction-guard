@@ -789,5 +789,314 @@ class TestCompactionGuard(unittest.TestCase):
         self.assertIn("Verification failed", res.stderr + res.stdout)
 
 
+    def test_state_corruption_quarantine_backup_and_transcript_recovery(self) -> None:
+        """P1-01: Corrupt state file is quarantined, logged, and recovered via .bak or transcript."""
+        state_dir = Path(self.tmp_dir.name) / ".system_generated"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        state_file = state_dir / "compaction_guard_state.json"
+        bak_file = state_dir / "compaction_guard_state.bak"
+
+        # 1. Save valid state to generate .bak
+        valid_state = cg._default_state()
+        valid_state["total_steps_seen"] = 15
+        valid_state["checkpoints_seen"] = [10]
+        cg.save_state_atomic(state_file, valid_state)
+        self.assertTrue(state_file.exists())
+
+        # Save again to populate .bak
+        valid_state["total_steps_seen"] = 20
+        cg.save_state_atomic(state_file, valid_state)
+        self.assertTrue(bak_file.exists())
+
+        # Corrupt the primary state file with truncated invalid JSON
+        state_file.write_text('{"schema_version": 2, "truncated": ', encoding="utf-8")
+
+        # Load state; should quarantine corrupt file, log diagnostic, and recover from .bak
+        recovered = cg.load_state(state_file)
+        self.assertEqual(recovered["total_steps_seen"], 15)  # Recovered from .bak
+        self.assertEqual(recovered["checkpoints_seen"], [10])
+
+        # Verify a .corrupt file was created
+        corrupt_files = list(state_dir.glob("compaction_guard_state.corrupt.*.json"))
+        self.assertGreaterEqual(len(corrupt_files), 1)
+
+        # Verify diagnostic error log was created
+        err_log = state_dir / "compaction_guard_error.log"
+        self.assertTrue(err_log.exists())
+        self.assertIn("state_load_corruption", err_log.read_text(encoding="utf-8"))
+
+        # 2. Corrupt both primary and .bak, but provide transcript for self-healing
+        state_file.write_text("INVALID_GARBAGE", encoding="utf-8")
+        bak_file.write_text("INVALID_GARBAGE", encoding="utf-8")
+
+        # Prepare a synthetic transcript
+        self._append_steps([
+            {"step_index": 1, "source": "USER_INPUT", "type": "USER_INPUT", "content": "<USER_REQUEST>Build trading pipeline</USER_REQUEST>"},
+            {"step_index": 5, "source": "SYSTEM", "type": "CHECKPOINT", "content": "# Resuming"},
+        ])
+
+        reconstructed = cg.load_state(state_file, transcript_path=str(self.transcript_path), workspace_root=self.tmp_dir.name)
+        self.assertGreaterEqual(reconstructed["total_steps_seen"], 5)
+        self.assertEqual(reconstructed["checkpoints_seen"], [5])
+        self.assertIn("Build trading pipeline", reconstructed["first_user_request"]["text"])
+
+    def test_workspace_containment_and_path_traversal_defense(self) -> None:
+        """P1-02: Workspace containment boundary blocks path traversal outside workspace."""
+        workspace = Path(self.tmp_dir.name) / "project_root"
+        workspace.mkdir(parents=True, exist_ok=True)
+        inside_file = workspace / "src" / "index.ts"
+        inside_file.parent.mkdir(parents=True, exist_ok=True)
+        inside_file.write_text("console.log('hello');", encoding="utf-8")
+
+        outside_dir = Path(self.tmp_dir.name) / "secret_sys_dir"
+        outside_dir.mkdir(parents=True, exist_ok=True)
+        outside_file = outside_dir / "passwords.txt"
+        outside_file.write_text("super_secret", encoding="utf-8")
+
+        # 1. Path within workspace
+        self.assertTrue(cg.is_path_within_workspace(str(inside_file), str(workspace)))
+        probe_in = cg._compute_file_probe(str(inside_file), workspace_root=str(workspace))
+        self.assertTrue(probe_in["exists"])
+        self.assertEqual(probe_in["status"], "OK")
+        self.assertTrue(probe_in["workspace_contained"])
+
+        # 2. Path outside workspace (anti-traversal / P1-02)
+        self.assertFalse(cg.is_path_within_workspace(str(outside_file), str(workspace)))
+        probe_out = cg._compute_file_probe(str(outside_file), workspace_root=str(workspace))
+        self.assertEqual(probe_out["status"], "OUTSIDE_WORKSPACE_BOUNDARY")
+        self.assertFalse(probe_out["workspace_contained"])
+        self.assertIsNone(probe_out["sha256_full"])
+        # Full path is redacted to filename only
+        self.assertEqual(probe_out["resolved_path"], "passwords.txt")
+
+        # 3. Relative path traversal sequence (e.g. ../../secret)
+        traversal_path = "../../secret_sys_dir/passwords.txt"
+        self.assertFalse(cg.is_path_within_workspace(str(workspace / traversal_path), str(workspace)))
+
+    def test_code_symbol_extraction_java_csharp_methods_and_sampling_bounds(self) -> None:
+        """P1-03: Extract Java/C# method signatures and respect sampling boundaries."""
+        code_java = """
+        package com.trading.core;
+
+        public class OrderEngine {
+            public void executeOrder(String symbol, double amount) throws ExecutionException {
+                // do work
+            }
+
+            protected static synchronized boolean validateMargin(Account acc) {
+                if (acc != null) { return true; }
+                return false;
+            }
+
+            private OrderRecord createRecord() {
+                return new OrderRecord();
+            }
+        }
+        """
+        symbols = cg._extract_code_symbols(code_java)
+        self.assertIn("OrderEngine", symbols)
+        self.assertIn("executeOrder", symbols)
+        self.assertIn("validateMargin", symbols)
+        self.assertIn("createRecord", symbols)
+        # Ensure control structures are excluded
+        self.assertNotIn("if", symbols)
+        self.assertNotIn("return", symbols)
+
+        # C# async Task signature
+        code_csharp = """
+        public class CryptoService {
+            public async Task<OrderResponse> ProcessOrderAsync(OrderRequest req) {
+                return await Task.FromResult(new OrderResponse());
+            }
+        }
+        """
+        cs_symbols = cg._extract_code_symbols(code_csharp)
+        self.assertIn("CryptoService", cs_symbols)
+        self.assertIn("ProcessOrderAsync", cs_symbols)
+
+    def test_runway_telemetry_heuristic_labeling(self) -> None:
+        """P1-04: Runway telemetry includes explicit heuristic indicators."""
+        # Create a small transcript
+        tpath = Path(self.tmp_dir.name) / "runway_transcript.jsonl"
+        tpath.write_text('{"step_index": 1}\n', encoding='utf-8')
+
+        state = cg._default_state()
+        state = cg.sync_state_from_transcript(state, str(tpath))
+        self.assertIn("runway_bytes", state)
+        self.assertEqual(state["runway_status"], "NORMAL")
+
+        # Test CLI inspect output structure
+        import io
+        stdout_capture = io.StringIO()
+        old_stdout = sys.stdout
+        try:
+            sys.stdout = stdout_capture
+            cg.handle_inspect(str(tpath))
+        finally:
+            sys.stdout = old_stdout
+
+        inspect_output = stdout_capture.getvalue()
+        self.assertIn("heuristic_note", inspect_output)
+        self.assertIn("Raw JSONL byte size telemetry", inspect_output)
+
+    def test_amnesia_classifier_confusion_matrix_and_metrics(self) -> None:
+        """P1-05: Evaluate amnesia regex on labeled dataset with Precision, Recall, and FPR assertions."""
+        # True Positives: Paraphrased amnesia resets mid-session
+        positive_samples = [
+            "Halo, saya asisten baru Anda. Ada yang bisa saya bantu?",
+            "Sesi terhubung dengan panduan GEMINI.md. Saya bertugas sebagai peran apa pada sesi ini?",
+            "Sebagai peran apa yang harus saya jalankan di proyek ini?",
+            "Mohon konfirmasi peran apa yang perlu saya kerjakan?",
+            "What is my assigned role for this session?",
+            "What role do you want me to play on this project?",
+            "How can I help you today?",
+            "Please provide your task instructions to get started for this session.",
+            "I am ready to assist, what would you like me to work on today?",
+            "Apa sebenarnya peran saya dalam percakapan ini?",
+            "Selamat pagi, apa yang bisa saya bantu hari ini?",
+            "Please specify my role before we begin.",
+            "Bertugas sebagai peran apa untuk proyek ini?",
+            "Silakan berikan arahan atau tugas baru.",
+            "Which role am I supposed to assume for this workspace?",
+        ]
+
+        # True Negatives: Benign controls that must NOT be flagged as amnesia
+        negative_samples = [
+            "Terima kasih atas diskusinya, sampai jumpa di sesi berikutnya.",
+            "User instruction states: 'Tugas kamu adalah menganalisis log'.",
+            "class UserRoleService: def get_role(self): return 'admin'",
+            "Saya akan membaca file src/index.ts terlebih dahulu menggunakan read_file.",
+            "Berikut adalah ringkasan hasil backtest: Sharpe Ratio 1.85, Max Drawdown 4.2%.",
+            "Peran saya adalah quant developer yang bertugas di Role 1.",
+            "Kita akan membagi tugas menjadi 3 peran: Role 1, Role 2, dan Role 3.",
+            "Commit 17bdfaa telah di-push ke remote origin/main.",
+            "Model lulus kriteria produksi dengan daily drawdown di bawah 5.0%.",
+            "Mohon periksa baris 42 pada berkas pipeline.py.",
+            "Fungsi ini bertugas untuk menghitung log return dari harga penutupan.",
+            "Hasil eksekusi unit test menunjukkan 26 test passed.",
+            "Semua perubahan telah disimpan ke file config.json.",
+            "Saya telah menyelesaikan perbaikan pada modul installer.",
+            "Dokumentasi API telah diperbarui di README.md.",
+        ]
+
+        tp = 0
+        fn = 0
+        for sample in positive_samples:
+            if cg.BOOTSTRAP_AMNESIA_RE.search(sample):
+                tp += 1
+            else:
+                fn += 1
+
+        fp = 0
+        tn = 0
+        for sample in negative_samples:
+            if cg.BOOTSTRAP_AMNESIA_RE.search(sample):
+                fp += 1
+            else:
+                tn += 1
+
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+
+        # Enforce statistical thresholds:
+        self.assertGreaterEqual(recall, 0.95, f"Recall {recall:.2f} is below 0.95 (FN={fn})")
+        self.assertLessEqual(fpr, 0.05, f"False Positive Rate {fpr:.2f} exceeds 0.05 (FP={fp})")
+        self.assertGreaterEqual(precision, 0.95, f"Precision {precision:.2f} is below 0.95")
+
+    def test_runtime_subprocess_integration_harness(self) -> None:
+        """P1-07: Subprocess integration harness streaming JSON payloads over stdin/stdout."""
+        cg_script = SCRIPT_DIR / "compaction_guard.py"
+        self.assertTrue(cg_script.exists())
+
+        # 1. Normal turn PreInvocation -> {}
+        normal_payload = {
+            "transcriptPath": str(self.transcript_path),
+            "workspacePaths": [self.tmp_dir.name],
+        }
+        res_norm = subprocess.run(
+            [sys.executable, str(cg_script), "pre-invocation"],
+            input=json.dumps(normal_payload),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(res_norm.returncode, 0)
+        out_json = json.loads(res_norm.stdout.strip())
+        self.assertEqual(out_json, {})
+
+        # 2. Post-checkpoint turn PreInvocation -> injectSteps
+        self._append_steps([
+            {"step_index": 1, "source": "USER_INPUT", "type": "USER_INPUT", "content": "<USER_REQUEST>Execute ML run</USER_REQUEST>"},
+            {"step_index": 2, "source": "SYSTEM", "type": "CHECKPOINT", "content": "# Resuming"},
+        ])
+        res_cp = subprocess.run(
+            [sys.executable, str(cg_script), "pre-invocation"],
+            input=json.dumps(normal_payload),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(res_cp.returncode, 0)
+        out_cp = json.loads(res_cp.stdout.strip())
+        self.assertIn("injectSteps", out_cp)
+        sys_msg = out_cp["injectSteps"][0]["systemMessage"]["systemMessage"]
+        self.assertIn("[TRUSTED GUARD POLICY & DIRECTIVES]", sys_msg)
+
+        # 3. Stop hook amnesia block
+        stop_payload = {
+            "transcriptPath": str(self.transcript_path),
+            "workspacePaths": [self.tmp_dir.name],
+            "terminationReason": "NO_TOOL_CALL",
+        }
+        # Add a planner response with amnesia greeting
+        self._append_steps([
+            {
+                "step_index": 3,
+                "source": "MODEL",
+                "type": "PLANNER_RESPONSE",
+                "content": "Halo, saya bertugas sebagai peran apa pada sesi ini?",
+                "tool_calls": [],
+            }
+        ])
+        res_stop = subprocess.run(
+            [sys.executable, str(cg_script), "stop"],
+            input=json.dumps(stop_payload),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(res_stop.returncode, 0)
+        out_stop = json.loads(res_stop.stdout.strip())
+        self.assertEqual(out_stop.get("decision"), "continue")
+
+    def test_purge_cli_and_retention_policy(self) -> None:
+        """P1-08: Retention policy prunes expired temp, corrupt, and stale artifacts."""
+        target_dir = Path(self.tmp_dir.name) / ".system_generated"
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create expired and fresh files
+        old_time = time.time() - (10 * 86400)  # 10 days ago
+        fresh_time = time.time()
+
+        old_corrupt = target_dir / "compaction_guard_state.corrupt.12345.json"
+        old_corrupt.write_text("{}", encoding="utf-8")
+        os.utime(old_corrupt, (old_time, old_time))
+
+        old_bak = target_dir / "compaction_guard_state.bak"
+        old_bak.write_text("{}", encoding="utf-8")
+        os.utime(old_bak, (old_time, old_time))
+
+        fresh_state = target_dir / "compaction_guard_state.json"
+        fresh_state.write_text("{}", encoding="utf-8")
+        os.utime(fresh_state, (fresh_time, fresh_time))
+
+        # Run purge with older_than_days=7
+        cg.handle_purge(str(target_dir), older_than_days=7, dry_run=False)
+
+        # Old corrupt and old bak should be unlinked
+        self.assertFalse(old_corrupt.exists())
+        self.assertFalse(old_bak.exists())
+        # Fresh state must remain intact
+        self.assertTrue(fresh_state.exists())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

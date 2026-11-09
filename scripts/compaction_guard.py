@@ -12,6 +12,7 @@ Subcommands:
                   premature new-session bootstrap resets mid-session.
   inspect <path>  CLI diagnostic: prints extracted session state, runway meter,
                   and recovery capsule for a given transcript.jsonl file.
+  purge           CLI retention maintenance: cleans up stale temp, quarantine, and log files.
 """
 
 from __future__ import annotations
@@ -23,12 +24,13 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 import time
 import traceback
 from typing import Any
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 STATE_SCHEMA_VERSION = 2
 MAX_RECENT_USER_REQUESTS = 10
 MAX_QA_DECISIONS = 15
@@ -69,12 +71,14 @@ BOOTSTRAP_AMNESIA_RE = re.compile(
     r"what\s+can\s+i\s+(?:help|assist)\s+you\s+(?:with|today)|"
     r"i\s+am\s+ready\s+to\s+(?:help|assist|start|begin).*?what\s+(?:would|should|can)|"
     r"what\s+would\s+you\s+like\s+(?:me\s+to|us\s+to)\s+(?:work\s+on|build|do\s+today)|"
-    r"please\s+provide\s+(?:the|your)\s+(?:task|project|instructions|requirements)\s+(?:to\s+get\s+started|for\s+this\s+session)"
+    r"please\s+provide\s+(?:the|your)\s+(?:task\s+)?(?:instructions|requirements|details|project)\s+(?:to\s+get\s+started|for\s+this\s+session)?"
     r")",
     re.IGNORECASE | re.DOTALL,
 )
 
 # Structural code symbol extractor (Anti-Issue #1245)
+# Supports Python, TypeScript, JavaScript, Rust, Go, Java, and C#
+# Best-effort regex-based structural symbol hint generator (sampling first 64KB)
 # Supports Python, TypeScript, JavaScript, Rust, Go, Java, and C#
 SYMBOL_RE = re.compile(
     r"(?:"
@@ -82,6 +86,7 @@ SYMBOL_RE = re.compile(
     r"(?:class|interface|type|struct|enum|trait|contract)\s+([A-Za-z0-9_]+)|"
     r"^\s*(?:(?:export|default|pub(?:\([^)]+\))?|public|private|protected|internal|abstract|final|sealed|static|async)\s+)*"
     r"(?:def|function\*?|fn|func)\s*(?:\([^)]+\)\s*)?([A-Za-z0-9_]+)|"
+    r"^\s*(?:(?:public|private|protected|internal|static|final|abstract|synchronized|native|async)\s+)+(?:void|[A-Za-z0-9_<>\[\]]+)\s+([A-Za-z0-9_]+)\s*\([^)]*\)\s*(?:throws\s+[A-Za-z0-9_,\s]+)?\s*\{|"
     r"^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z0-9_]+)(?:\s*:\s*[^=]+)?\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z0-9_]+)\s*=>"
     r")",
     re.MULTILINE,
@@ -101,6 +106,7 @@ DISALLOWED_SYMBOLS = {
     "continue", "default", "type", "func", "fn", "def", "class", "struct",
     "enum", "interface", "trait", "package", "import", "export", "var", "let",
     "const", "true", "false", "null", "nil", "None", "undefined", "async", "await",
+    "try", "catch", "finally", "throws", "synchronized", "new", "this", "super",
 }
 
 
@@ -261,6 +267,26 @@ def resolve_workspace_root(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def is_path_within_workspace(raw_path: str, workspace_root: str | None = None) -> bool:
+    """Validate that path resides strictly inside workspace_root (anti-traversal / P1-02)."""
+    if not workspace_root or not raw_path:
+        return True
+    try:
+        w_res = Path(workspace_root).resolve()
+        p = Path(raw_path)
+        if not p.is_absolute():
+            p_res = (w_res / p).resolve()
+        else:
+            p_res = p.resolve()
+        try:
+            p_res.relative_to(w_res)
+            return True
+        except ValueError:
+            return False
+    except (OSError, ValueError):
+        return False
+
+
 def _compute_file_probe(raw_path: str, workspace_root: str | None = None) -> dict[str, Any]:
     """Compute physical file existence, exact byte size, full 64-char SHA-256, and truncated prefix."""
     try:
@@ -269,6 +295,18 @@ def _compute_file_probe(raw_path: str, workspace_root: str | None = None) -> dic
             candidate = Path(workspace_root) / p
             if candidate.is_file() or candidate.exists():
                 p = candidate
+        # P1-02: Workspace containment boundary verification
+        if workspace_root and not is_path_within_workspace(str(p), workspace_root):
+            return {
+                "exists": p.is_file(),
+                "size_bytes": p.stat().st_size if p.is_file() else None,
+                "sha256_full": None,
+                "sha256_12": None,
+                "status": "OUTSIDE_WORKSPACE_BOUNDARY",
+                "resolved_path": p.name,
+                "workspace_contained": False,
+            }
+
         if not p.exists() or not p.is_file():
             return {
                 "exists": False,
@@ -277,6 +315,7 @@ def _compute_file_probe(raw_path: str, workspace_root: str | None = None) -> dic
                 "sha256_12": None,
                 "status": "MISSING_ON_DISK",
                 "resolved_path": str(p),
+                "workspace_contained": True,
             }
         size = p.stat().st_size
         if size > 64 * 1024 * 1024:
@@ -287,6 +326,7 @@ def _compute_file_probe(raw_path: str, workspace_root: str | None = None) -> dic
                 "sha256_12": None,
                 "status": "HASH_SKIPPED_SIZE_LIMIT",
                 "resolved_path": str(p),
+                "workspace_contained": True,
             }
         h = hashlib.sha256()
         with p.open("rb") as fh:
@@ -303,6 +343,7 @@ def _compute_file_probe(raw_path: str, workspace_root: str | None = None) -> dic
             "sha256_12": full_hex[:12],
             "status": "OK",
             "resolved_path": str(p),
+            "workspace_contained": True,
         }
     except OSError:
         return {
@@ -312,6 +353,7 @@ def _compute_file_probe(raw_path: str, workspace_root: str | None = None) -> dic
             "sha256_12": None,
             "status": "UNREADABLE",
             "resolved_path": raw_path,
+            "workspace_contained": True,
         }
 
 
@@ -345,36 +387,98 @@ def resolve_transcript_pair(transcript_path_raw: str) -> tuple[Path | None, Path
     return None, None
 
 
-def load_state(state_file: Path) -> dict[str, Any]:
-    """Load JSON state with automatic schema migration from v1 to v2."""
+def load_state(
+    state_file: Path,
+    transcript_path: str | Path | None = None,
+    workspace_root: str | None = None,
+) -> dict[str, Any]:
+    """Load JSON state with automatic schema migration, corruption quarantine, and self-healing reconstruction (P1-01)."""
     if not state_file.exists():
+        bak_file = state_file.with_suffix(".bak")
+        if bak_file.exists():
+            try:
+                bak_data = json.loads(bak_file.read_text(encoding="utf-8"))
+                if isinstance(bak_data, dict) and bak_data.get("schema_version") in (1, STATE_SCHEMA_VERSION):
+                    merged = _default_state()
+                    merged.update(bak_data)
+                    merged["schema_version"] = STATE_SCHEMA_VERSION
+                    return merged
+            except (OSError, ValueError, TypeError):
+                pass
         return _default_state()
+
     try:
-        data = json.loads(state_file.read_text(encoding="utf-8"))
+        raw_text = state_file.read_text(encoding="utf-8")
+        if not raw_text.strip():
+            raise ValueError("State file is empty")
+        data = json.loads(raw_text)
         if not isinstance(data, dict):
-            return _default_state()
+            raise TypeError("State payload is not a JSON object")
         version = data.get("schema_version")
         if version not in (1, STATE_SCHEMA_VERSION):
-            # Unknown futuristic schema version; reset safely
-            return _default_state()
+            raise ValueError(f"Unsupported schema version: {version}")
         merged = _default_state()
         merged.update(data)
-        # Migrate v1 to v2 in-place
         merged["schema_version"] = STATE_SCHEMA_VERSION
         if "pending_mutations" not in merged or not isinstance(merged["pending_mutations"], list):
             merged["pending_mutations"] = []
         return merged
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError) as exc:
+        # P1-01: Quarantine corrupted state file instead of silent reset
+        stamp = int(time.time())
+        corrupt_file = state_file.with_name(f"{state_file.stem}.corrupt.{stamp}.json")
+        try:
+            shutil.copy2(state_file, corrupt_file)
+        except OSError:
+            pass
+        log_hook_error(
+            state_file.parent,
+            "state_load_corruption",
+            ValueError(f"State file {state_file.name} corrupted ({exc}); quarantined to {corrupt_file.name}"),
+        )
+
+        # 1. Attempt fallback to backup (.bak)
+        bak_file = state_file.with_suffix(".bak")
+        if bak_file.exists():
+            try:
+                bak_data = json.loads(bak_file.read_text(encoding="utf-8"))
+                if isinstance(bak_data, dict) and bak_data.get("schema_version") in (1, STATE_SCHEMA_VERSION):
+                    merged = _default_state()
+                    merged.update(bak_data)
+                    merged["schema_version"] = STATE_SCHEMA_VERSION
+                    save_state_atomic(state_file, merged)
+                    return merged
+            except (OSError, ValueError, TypeError):
+                pass
+
+        # 2. Attempt self-healing reconstruction from transcript
+        if transcript_path:
+            try:
+                tp = Path(transcript_path)
+                if tp.exists():
+                    reconstructed = sync_state_from_transcript(_default_state(), str(tp), workspace_root=workspace_root)
+                    save_state_atomic(state_file, reconstructed)
+                    return reconstructed
+            except Exception as replay_err:
+                log_hook_error(state_file.parent, "state_self_healing_replay", replay_err)
+
         return _default_state()
 
 
 def save_state_atomic(state_file: Path, state: dict[str, Any]) -> None:
-    """Persist JSON state atomically via temporary file and atomic replace."""
+    """Persist JSON state atomically via temporary file, atomic replace, and backup copy (P1-01)."""
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state["updated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
     tmp_file = state_file.with_suffix(f".tmp.{os.getpid()}")
     try:
         tmp_file.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        if state_file.exists():
+            bak_file = state_file.with_suffix(".bak")
+            try:
+                if state_file.stat().st_size > 5:
+                    shutil.copy2(state_file, bak_file)
+            except OSError:
+                pass
         last_err: Exception | None = None
         for attempt in range(5):
             try:
@@ -739,6 +843,25 @@ def sync_state_from_transcript(
         except OSError:
             pass
 
+    # P1-08: Enforce bounds on historical collections to prevent unbounded state growth
+    if len(state["checkpoints_seen"]) > 20:
+        state["checkpoints_seen"] = state["checkpoints_seen"][-20:]
+    if len(state["qa_decisions"]) > MAX_QA_DECISIONS:
+        state["qa_decisions"] = state["qa_decisions"][-MAX_QA_DECISIONS:]
+    if len(state["recent_user_requests"]) > MAX_RECENT_USER_REQUESTS:
+        state["recent_user_requests"] = state["recent_user_requests"][-MAX_RECENT_USER_REQUESTS:]
+    if len(state["recent_actions"]) > MAX_RECENT_ACTIONS:
+        state["recent_actions"] = state["recent_actions"][-MAX_RECENT_ACTIONS:]
+    if len(state.get("pending_mutations", [])) > 20:
+        state["pending_mutations"] = state["pending_mutations"][-20:]
+    if len(state["mutated_files"]) > MAX_MUTATED_FILES:
+        sorted_files = sorted(
+            state["mutated_files"].items(),
+            key=lambda item: int(item[1].get("step", 0)),
+            reverse=True,
+        )
+        state["mutated_files"] = dict(sorted_files[:MAX_MUTATED_FILES])
+
     return state
 
 
@@ -821,7 +944,9 @@ def build_recovery_capsule(
             probe = _compute_file_probe(raw_p, workspace_root=workspace_root)
             baseline_sha = item.get("baseline_sha256")
 
-            if not probe["exists"]:
+            if not probe.get("workspace_contained", True) or probe.get("status") == "OUTSIDE_WORKSPACE_BOUNDARY":
+                status_desc = "OUTSIDE_WORKSPACE_BOUNDARY (Integrity hashing bypassed)"
+            elif not probe["exists"]:
                 status_desc = "MISSING_ON_DISK"
             elif probe["status"] == "HASH_SKIPPED_SIZE_LIMIT":
                 status_desc = f"HASH_SKIPPED_SIZE_LIMIT size={probe['size_bytes']}B"
@@ -895,7 +1020,7 @@ def handle_post_tool(payload: dict[str, Any]) -> dict[str, Any]:
         state_file = state_dir / "compaction_guard_state.json"
         lock_file = state_file.with_suffix(".lock")
         with file_lock(lock_file):
-            state = load_state(state_file)
+            state = load_state(state_file, transcript_path=tpath, workspace_root=w_root)
             state = sync_state_from_transcript(state, tpath, workspace_root=w_root)
             save_state_atomic(state_file, state)
     return {}
@@ -911,7 +1036,7 @@ def handle_pre_invocation(payload: dict[str, Any]) -> dict[str, Any]:
     state_file = state_dir / "compaction_guard_state.json"
     lock_file = state_file.with_suffix(".lock")
     with file_lock(lock_file):
-        state = load_state(state_file)
+        state = load_state(state_file, transcript_path=tpath, workspace_root=w_root)
         state = sync_state_from_transcript(state, tpath, workspace_root=w_root)
 
         checkpoints: list[int] = state.get("checkpoints_seen", [])
@@ -957,7 +1082,7 @@ def handle_stop(payload: dict[str, Any]) -> dict[str, Any]:
     state_file = state_dir / "compaction_guard_state.json"
     lock_file = state_file.with_suffix(".lock")
     with file_lock(lock_file):
-        state = load_state(state_file)
+        state = load_state(state_file, transcript_path=tpath, workspace_root=w_root)
         state = sync_state_from_transcript(state, tpath, workspace_root=w_root)
 
         checkpoints: list[int] = state.get("checkpoints_seen", [])
@@ -1019,6 +1144,8 @@ def handle_inspect(transcript_path_raw: str) -> int:
         "pending_mutations_count": len(state.get("pending_mutations", [])),
         "runway_meter": {
             "transcript_bytes": file_size,
+            "heuristic_note": "Raw JSONL byte size telemetry (heuristic indicator, not direct active context tokens)",
+            "compaction_risk_level": state.get("runway_status", "NORMAL"),
             "compaction_threshold_pct": round(runway_pct, 1),
             "status": state.get("runway_status", "NORMAL"),
         },
@@ -1026,6 +1153,89 @@ def handle_inspect(transcript_path_raw: str) -> int:
     print(json.dumps(summary_obj, indent=2, ensure_ascii=False))
     print("\n" + "=" * 72 + "\n")
     print(build_recovery_capsule(state, latest_cp, transcript_path_raw))
+    return 0
+
+
+def handle_purge(
+    target_dir_raw: str | None = None,
+    older_than_days: int = 7,
+    dry_run: bool = False,
+) -> int:
+    """Purge stale state, quarantined files, and temporary swap artifacts (P1-08)."""
+    now = time.time()
+    cutoff = now - (older_than_days * 86400)
+    dirs_to_check: list[Path] = []
+    if target_dir_raw:
+        dirs_to_check.append(Path(target_dir_raw))
+    else:
+        dirs_to_check.append(Path.cwd() / ".agents" / "plugins" / "compaction-guard")
+        dirs_to_check.append(Path.home() / ".gemini" / "config" / "plugins" / "compaction-guard")
+        brain_dir = Path.home() / ".gemini" / "antigravity" / "brain"
+        if brain_dir.exists():
+            for p in brain_dir.glob("*/.system_generated"):
+                if p.is_dir():
+                    dirs_to_check.append(p)
+        cwd_sys = Path.cwd() / ".system_generated"
+        if cwd_sys.exists():
+            dirs_to_check.append(cwd_sys)
+
+    purged_count = 0
+    total_bytes = 0
+
+    print(f"[*] Compaction Guard Purge Engine v{VERSION}")
+    print(f"[*] Retention cutoff: files older than {older_than_days} days (dry_run={dry_run})\n")
+
+    seen_files: set[Path] = set()
+    for d in dirs_to_check:
+        if not d.exists() or not d.is_dir():
+            continue
+        try:
+            for item in d.iterdir():
+                if not item.is_file():
+                    continue
+                name = item.name
+                should_purge = False
+                reason = ""
+                mtime = item.stat().st_mtime
+
+                if ".tmp." in name:
+                    if now - mtime > 3600:
+                        should_purge = True
+                        reason = "stale temp swap file"
+                elif ".corrupt." in name:
+                    if mtime < cutoff:
+                        should_purge = True
+                        reason = "expired quarantined corrupt state"
+                elif name.endswith(".lock"):
+                    if now - mtime > 3600:
+                        should_purge = True
+                        reason = "stale lock file"
+                elif name.endswith(".bak"):
+                    if mtime < cutoff:
+                        should_purge = True
+                        reason = "expired state backup"
+                elif name == "compaction_guard_error.log":
+                    if mtime < cutoff:
+                        should_purge = True
+                        reason = "expired error log"
+
+                if should_purge and item not in seen_files:
+                    seen_files.add(item)
+                    size = item.stat().st_size
+                    purged_count += 1
+                    total_bytes += size
+                    if dry_run:
+                        print(f"  [DRY RUN] Would remove: {item} ({size} B, {reason})")
+                    else:
+                        try:
+                            item.unlink()
+                            print(f"  [PURGED] Removed: {item} ({size} B, {reason})")
+                        except OSError as e:
+                            print(f"  [!] Failed to remove {item}: {e}")
+        except OSError:
+            pass
+
+    print(f"\n[✓] Purge complete: {purged_count} file(s) processed ({total_bytes} bytes).")
     return 0
 
 
@@ -1056,6 +1266,25 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write("Usage: compaction_guard.py inspect <transcript.jsonl>\n")
             return 2
         return handle_inspect(args[1])
+
+    if mode == "purge":
+        days = 7
+        target_dir = None
+        dry = False
+        idx = 1
+        while idx < len(args):
+            if args[idx] in ("--older-than-days", "-d") and idx + 1 < len(args):
+                days = int(args[idx + 1])
+                idx += 2
+            elif args[idx] in ("--dir", "--workspace", "-w") and idx + 1 < len(args):
+                target_dir = args[idx + 1]
+                idx += 2
+            elif args[idx] == "--dry-run":
+                dry = True
+                idx += 1
+            else:
+                idx += 1
+        return handle_purge(target_dir, older_than_days=days, dry_run=dry)
 
     payload: dict[str, Any] = {}
     state_dir: Path | None = None

@@ -1,7 +1,7 @@
 {
   "name": "compaction-guard",
   "displayName": "Compaction Guard (Session Evidence & Recovery Engine)",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Universal 3-hook lifecycle engine (PostToolUse, PreInvocation, Stop) with two-phase mutation confirmation, dual-digest baseline file auditing, cross-process locking, and structured provenance recovery to eliminate post-compaction context drift.",
   "author": "Muhammad Ali Jawara Wiratama",
   "license": "MIT",

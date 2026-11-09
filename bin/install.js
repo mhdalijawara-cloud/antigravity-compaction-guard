@@ -10,7 +10,7 @@ const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
 
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const PACKAGE_ROOT = path.resolve(__dirname, '..');
 
 function printBanner() {
@@ -26,6 +26,7 @@ function printUsage() {
   console.log(`  --global     Install to global Antigravity config (~/.gemini/config/plugins) [default]`);
   console.log(`  --workspace  Install to current workspace (.agents/plugins)`);
   console.log(`  --verify     Run test suite on active installation without copying`);
+  console.log(`  --clean      Uninstall/remove Compaction Guard from target directory`);
   console.log(`  --help       Show this help message\n`);
 }
 
@@ -119,7 +120,19 @@ function main() {
 
   const isWorkspace = args.includes('--workspace') || args.includes('--project');
   const isVerifyOnly = args.includes('--verify');
+  const isClean = args.includes('--clean') || args.includes('--uninstall');
   const targetDir = resolveTargetDir(isWorkspace);
+
+  if (isClean) {
+    if (fs.existsSync(targetDir)) {
+      console.log(`[*] Removing Compaction Guard installation from: ${targetDir}`);
+      fs.rmSync(targetDir, { recursive: true, force: true });
+      console.log(`[✓] Successfully removed Compaction Guard.\n`);
+    } else {
+      console.log(`[*] Target directory does not exist: ${targetDir}\n`);
+    }
+    process.exit(0);
+  }
 
   const pyCmd = findPythonCommand();
   if (!pyCmd) {
