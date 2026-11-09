@@ -4,7 +4,7 @@
   "description": "Deterministic lifecycle hook engine for Google Antigravity that prevents agent context amnesia, preserves modified code symbols, and audits disk state across auto-compaction checkpoints.",
   "main": "bin/install.js",
   "bin": {
-    "antigravity-compaction-guard": "./bin/install.js"
+    "antigravity-compaction-guard": "bin/install.js"
   },
   "scripts": {
     "test": "python ./scripts/test_compaction_guard.py -v",
