@@ -45,40 +45,78 @@ When an Antigravity conversation trajectory approaches its context boundary (~25
 
 ## Architecture
 
-Compaction Guard coordinates three native Antigravity lifecycle hooks (`PostToolUse`, `PreInvocation`, `Stop`) with an isolated, in-session flight recorder:
+Compaction Guard operates as an asynchronous, deterministic lifecycle security fabric integrated directly into Google Antigravity's agent loop. Because auto-compaction collapses conversational state into lossy prose summaries, Compaction Guard establishes an independent, write-isolated ground truth ledger that persists across compaction boundaries.
+
+### 1. End-to-End System Flowchart
+
+```mermaid
+flowchart TD
+    subgraph PlatformLoop ["Google Antigravity Agent Runtime Loop"]
+        UserReq["User Prompt / Tool Execution"] --> PostToolHook["PostToolUse Hook"]
+        PostToolHook --> PlatformLog["Step Flushed to transcript_full.jsonl"]
+        PlatformLog --> ContextBoundary{"Context Approaching ~256K Tokens?<br/>(Store.ContextWindow)"}
+        
+        ContextBoundary -- "No (Normal Execution Turn)" --> PreInvocNormal["PreInvocation Hook<br/>(Emits {} • Zero Token Tax)"]
+        PreInvocNormal --> LLMResponse["Model Invocations & Tool Calls"]
+        
+        ContextBoundary -- "Yes (Threshold Exceeded)" --> CheckpointEvent["Platform Triggers CHECKPOINT Compaction<br/>(Lossy Prose Summary Injected)"]
+        CheckpointEvent --> PreInvocCompacted["PreInvocation Hook<br/>(New CHECKPOINT Detected)"]
+        PreInvocCompacted --> InjectCapsule["Synthesize & Inject Recovery Capsule<br/>(systemMessage + user_markdown)"]
+        InjectCapsule --> ResumingAgent["Agent Resumes Execution with Ground Truth"]
+        
+        ResumingAgent --> TurnFinished{"Turn Termination Check<br/>(terminationReason: NO_TOOL_CALL)"}
+        TurnFinished --> StopHook["Stop Hook (Anti-Amnesia Circuit Breaker)"]
+        StopHook -- "Amnesia Reset Detected?<br/>(latest_cp < step <= latest_cp + 4)" --> ContinuationVeto["Veto: decision: 'continue'<br/>(Re-Injects Mission Context & Authorizations)"]
+        ContinuationVeto --> ResumingAgent
+        StopHook -- "Valid Task Progress / Completed" --> NormalStop["Allow Termination: decision: 'allow'"]
+    end
+
+    subgraph QuarantineStorage ["Isolated Session Vault (.system_generated/)"]
+        FlightRecorder["Incremental Flight Recorder<br/>(Byte-Offset Streaming < 20ms)"]
+        StateVault[("compaction_guard_state.json<br/>───────────────────────<br/>• Verbatim Prompts & Authorizations<br/>• Locked ask_question Decisions<br/>• Polyglot Code Symbol Hashes<br/>• Physical Disk Hashes (SHA-256)<br/>• Pre-Compaction Tool Actions")]
+        DiskAuditor["Cryptographic Disk Auditor<br/>(Probes Workspace File Freshness)"]
+    end
+
+    PostToolHook --> FlightRecorder
+    FlightRecorder --> StateVault
+    PreInvocCompacted --> DiskAuditor
+    DiskAuditor --> StateVault
+    StateVault --> InjectCapsule
+```
+
+### 2. Multi-Layer Subsystem Architecture
+
+Compaction Guard is decomposed into four discrete, decoupled subsystems:
+
+| Layer | Subsystem | File / Interface | Architectural Responsibility |
+| :--- | :--- | :--- | :--- |
+| **L1** | **Interception Fabric** | [hooks.json](file:///C:/Users/Pongo/.gemini/config/plugins/compaction-guard/hooks.json) | Mounts native lifecycle hooks (`PostToolUse`, `PreInvocation`, `Stop`) with zero token overhead during regular execution turns. |
+| **L2** | **Continuous Flight Recorder** | [compaction_guard.py](file:///C:/Users/Pongo/.gemini/config/plugins/compaction-guard/scripts/compaction_guard.py) (`post-tool`) | Tails `transcript_full.jsonl` using buffered $O(1)$ byte-offset streaming (`< 20 ms`). Resilient to partial EOF line writes. Extracts polyglot code symbols, user authorizations, and disk hashes into `.system_generated/compaction_guard_state.json`. |
+| **L3** | **Cryptographic State Rehydrator** | [compaction_guard.py](file:///C:/Users/Pongo/.gemini/config/plugins/compaction-guard/scripts/compaction_guard.py) (`pre-invocation`) | Single-shot checkpoint interceptor. Probes physical disk files (12-char SHA-256 + byte size), formats the ~5,800-character Ground-Truth Recovery Capsule, and injects it via native `systemMessage`. |
+| **L4** | **Anti-Amnesia Circuit Breaker & Directive** | [compaction_guard.py](file:///C:/Users/Pongo/.gemini/config/plugins/compaction-guard/scripts/compaction_guard.py) (`stop`) & [rules/AGENTS.md](file:///C:/Users/Pongo/.gemini/config/plugins/compaction-guard/rules/AGENTS.md) | Single-shot circuit breaker per checkpoint preventing new-session role queries within the post-compaction horizon (`latest_cp < step <= latest_cp + 4`). Enforces disk re-verification (`Freshness`) before modifying previously edited files. |
+
+### 3. State Machine & Execution Lifecycle
 
 ```text
-                  NORMAL EXECUTION LOOP (0 Token Overhead)
-┌────────────────────────────────────────────────────────────────────────┐
-│ [Tool Execution] ──► PostToolUse Hook (Incremental Flight Recorder)    │
-│                            │                                           │
-│                            ▼                                           │
-│                .system_generated/compaction_guard_state.json           │
-│                • Verbatim user requests & authorizations               │
-│                • Resolved ask_question specifications                  │
-│                • Extracted code symbols (Python, TS/JS, Rust, Go, etc) │
-│                • Physical disk SHA-256 and byte sizes                  │
-│                • Transcript runway telemetry                           │
-└────────────────────────────────────────────────────────────────────────┘
-                                 │
-              [ Engine Triggers CHECKPOINT Compaction ]
-                                 │
-                                 ▼
-                    POST-COMPACTION CONTINUITY
-┌────────────────────────────────────────────────────────────────────────┐
-│ 1. PreInvocation Hook:                                                 │
-│    • Detects unhandled CHECKPOINT step in transcript.                  │
-│    • Injects single-shot Recovery Capsule via systemMessage.           │
-│    • Probes physical disk: reports DISK_OK or MISSING_ON_DISK.         │
-│                                                                        │
-│ 2. rules/AGENTS.md Directive:                                          │
-│    • Enforces post-compaction continuity laws.                         │
-│    • Mandates disk re-verification before resuming code edits.         │
-│                                                                        │
-│ 3. Stop Hook (Circuit Breaker):                                        │
-│    • Intercepts new-session startup greetings emitted mid-task.        │
-│    • Emits single-shot continuation veto, resuming active workflow.    │
-└────────────────────────────────────────────────────────────────────────┘
+ ┌─────────────────┐       Tool Executed       ┌──────────────────────┐
+ │  STEADY_STATE   │ ─────────────────────────►│ TRANSCRIPT_STREAMING  │
+ │ (0 Token Tax)   │◄───────────────────────── │ (Byte-Offset Sync)   │
+ └────────┬────────┘      Turn Completed       └──────────────────────┘
+          │
+          │ [ Context Window > 256K Tokens ]
+          ▼
+ ┌──────────────────────┐   PreInvocation    ┌──────────────────────┐
+ │ COMPACTION_TRIGGERED │ ──────────────────►│ CAPSULE_REHYDRATION  │
+ │ (CHECKPOINT Flushed) │                    │ (Disk SHA-256 Probe) │
+ └──────────────────────┘                    └──────────┬───────────┘
+                                                        │
+                                                        ▼
+ ┌──────────────────────┐    Amnesia Query   ┌──────────────────────┐
+ │ CONTINUATION_VETO    │◄───────────────────│ RESUMPTION_CHECK     │
+ │ (decision: continue) │                    │ (Immediate Horizon)  │
+ └──────────┬───────────┘                    └──────────┬───────────┘
+            │                                           │ Normal Turn
+            └──────────────► Agent Continues ◄──────────┘ (decision: allow)
 ```
 
 ---
