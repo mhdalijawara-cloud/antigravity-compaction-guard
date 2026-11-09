@@ -30,7 +30,7 @@ import time
 import traceback
 from typing import Any
 
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 STATE_SCHEMA_VERSION = 2
 MAX_RECENT_USER_REQUESTS = 10
 MAX_QA_DECISIONS = 15
