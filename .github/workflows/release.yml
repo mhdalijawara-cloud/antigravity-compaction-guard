@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+
+      - name: Run verification tests
+        run: |
+          python ./scripts/test_compaction_guard.py -v
+          node ./bin/install.js --verify
+
+      - name: Create release archives
+        run: |
+          mkdir -p dist
+          tar --exclude='.git' --exclude='.github' -czf dist/antigravity-compaction-guard-${{ github.ref_name }}.tar.gz .
+          zip -r -q dist/antigravity-compaction-guard-${{ github.ref_name }}.zip . -x '*.git*' '*.github*'
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Release ${{ github.ref_name }}"
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

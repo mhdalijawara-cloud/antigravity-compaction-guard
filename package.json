@@ -1,0 +1,46 @@
+{
+  "name": "antigravity-compaction-guard",
+  "version": "1.2.0",
+  "description": "Deterministic lifecycle hook engine for Google Antigravity that prevents agent context amnesia, preserves modified code symbols, and audits disk state across auto-compaction checkpoints.",
+  "main": "bin/install.js",
+  "bin": {
+    "antigravity-compaction-guard": "./bin/install.js"
+  },
+  "scripts": {
+    "test": "python ./scripts/test_compaction_guard.py -v",
+    "install-local": "node ./bin/install.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mhdalijawara-cloud/antigravity-compaction-guard.git"
+  },
+  "keywords": [
+    "antigravity",
+    "antigravity-2.0",
+    "antigravity-plugin",
+    "ai-agent",
+    "context-compaction",
+    "anti-amnesia",
+    "lifecycle-hooks",
+    "developer-tools"
+  ],
+  "author": "Muhammad Ali Jawara Wiratama",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mhdalijawara-cloud/antigravity-compaction-guard/issues"
+  },
+  "homepage": "https://github.com/mhdalijawara-cloud/antigravity-compaction-guard#readme",
+  "files": [
+    "bin",
+    "hooks.json",
+    "plugin.json",
+    "rules",
+    "scripts",
+    "assets",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

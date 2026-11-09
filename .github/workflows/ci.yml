@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }} - Py ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        python-version: [ "3.10", "3.11", "3.12" ]
+        node-version: [ "20" ]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Run Python unit tests
+        run: python ./scripts/test_compaction_guard.py -v
+
+      - name: Test CLI flags
+        run: |
+          python ./scripts/compaction_guard.py --version
+          python ./scripts/compaction_guard.py --help
+
+      - name: Test Node installer
+        run: node ./bin/install.js --verify

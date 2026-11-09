@@ -1,5 +1,7 @@
 # Antigravity Compaction Guard
 
+[![CI](https://github.com/mhdalijawara-cloud/antigravity-compaction-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/mhdalijawara-cloud/antigravity-compaction-guard/actions/workflows/ci.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/mhdalijawara-cloud/antigravity-compaction-guard?color=blue)](https://github.com/mhdalijawara-cloud/antigravity-compaction-guard/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Antigravity: 2.0](https://img.shields.io/badge/Antigravity-2.0%2B%20(v2.29.0)-orange.svg)](plugin.json)
 [![Python: 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -95,19 +97,25 @@ Compaction Guard coordinates three lifecycle hooks (`PostToolUse`, `PreInvocatio
 
 ## Installation
 
-### Global Installation (User Level)
+### Automated Installer (Recommended)
 
-Clone directly into the Antigravity global plugins directory:
+Run the one-line zero-install setup directly via NPX:
 
 ```bash
-git clone https://github.com/mhdalijawara-cloud/antigravity-compaction-guard.git ~/.gemini/config/plugins/compaction-guard
+# Global installation into ~/.gemini/config/plugins/compaction-guard
+npx antigravity-compaction-guard
+
+# Or install into current workspace (.agents/plugins/compaction-guard)
+npx antigravity-compaction-guard --workspace
 ```
 
-### Workspace Installation (Project Level)
-
-Clone into your workspace configuration directory:
+### Git Clone (Manual)
 
 ```bash
+# Global installation (User level)
+git clone https://github.com/mhdalijawara-cloud/antigravity-compaction-guard.git ~/.gemini/config/plugins/compaction-guard
+
+# Workspace installation (Project level)
 git clone https://github.com/mhdalijawara-cloud/antigravity-compaction-guard.git .agents/plugins/compaction-guard
 ```
 
