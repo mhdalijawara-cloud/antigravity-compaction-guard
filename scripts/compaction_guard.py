@@ -164,9 +164,16 @@ def _truncate_text(text: str, max_len: int) -> str:
 
 
 def _canonicalize_path(raw_path: str, workspace_root: str | None = None) -> str:
-    """Return a lowercased canonical absolute path key on Windows to eliminate case duplicate entries."""
+    """Return a lowercased canonical absolute path key to eliminate case duplicate entries cross-platform."""
+    cleaned = raw_path
+    if re.match(r"^[a-zA-Z]:[/\\]", cleaned):
+        drive = cleaned[0].lower()
+        rest = cleaned[2:].replace("\\", "/")
+        cleaned = f"{drive}:{rest}"
+        if sys.platform != "win32":
+            return cleaned
     try:
-        p = Path(raw_path)
+        p = Path(cleaned)
         if not p.is_absolute() and workspace_root:
             p = Path(workspace_root) / p
         resolved = p.resolve()

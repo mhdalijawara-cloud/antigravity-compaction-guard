@@ -213,6 +213,8 @@ class TestCompactionGuard(unittest.TestCase):
         )
         hooks_cfg = json.loads((SCRIPT_DIR.parent / "hooks.json").read_text(encoding="utf-8"))
         cmd = hooks_cfg["compaction-guard"]["PreInvocation"][0]["command"]
+        if cmd.startswith("python "):
+            cmd = f'"{sys.executable}" ' + cmd[7:]
         payload_str = json.dumps(self._base_payload(), ensure_ascii=False)
         proc = subprocess.run(
             cmd,
