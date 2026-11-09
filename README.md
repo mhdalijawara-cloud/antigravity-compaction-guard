@@ -17,16 +17,9 @@
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+" /></a>
 </p>
 
-<p align="center">
-  <a href="#overview">Overview</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#state-machine--execution-lifecycle">Lifecycle & Invariants</a> •
-  <a href="#dual-digest-file-auditing">Dual-Digest Auditing</a> •
-  <a href="#recovery-capsule-anatomy">Recovery Capsule</a> •
-  <a href="#system-limitations--failure-modes">Failure Modes</a> •
-  <a href="#installation--verification">Installation</a> •
-  <a href="#diagnostics--testing">Diagnostics</a>
-</p>
+| [📖 **Overview**](#overview) | [🏛️ **Architecture**](#architecture) | [🔄 **Lifecycle & Invariants**](#state-machine--execution-lifecycle) | [🔒 **Dual-Digest Auditing**](#dual-digest-file-auditing) |
+| :---: | :---: | :---: | :---: |
+| [💊 **Recovery Capsule**](#recovery-capsule-anatomy) | [⚠️ **Failure Modes**](#system-limitations--failure-modes) | [🚀 **Installation & Setup**](#installation--verification) | [🧪 **Diagnostics & Testing**](#diagnostics--testing) |
 
 ---
 
