@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Muhammad Ali Jawara Wiratama
 
 /**
  * Antigravity Compaction Guard - Universal One-Step Installer

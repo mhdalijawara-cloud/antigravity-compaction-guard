@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Muhammad Ali Jawara Wiratama
+
 """Antigravity Compaction Guard: Deterministic Session Evidence & Recovery Engine.
 
 Modular domain package for Antigravity lifecycle hooks.

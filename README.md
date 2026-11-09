@@ -17,9 +17,22 @@
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+" /></a>
 </p>
 
-| [📖 **Overview**](#overview) | [🏛️ **Architecture**](#architecture) | [🔄 **Lifecycle & Invariants**](#state-machine--execution-lifecycle) | [🔒 **Dual-Digest Auditing**](#dual-digest-file-auditing) |
-| :---: | :---: | :---: | :---: |
-| [💊 **Recovery Capsule**](#recovery-capsule-anatomy) | [⚠️ **Failure Modes**](#system-limitations--failure-modes) | [🚀 **Installation & Setup**](#installation--verification) | [🧪 **Diagnostics & Testing**](#diagnostics--testing) |
+<div align="center">
+<table align="center">
+  <tr>
+    <td align="center"><a href="#overview">📖 <b>Overview</b></a></td>
+    <td align="center"><a href="#architecture">🏛️ <b>Architecture</b></a></td>
+    <td align="center"><a href="#state-machine--execution-lifecycle">🔄 <b>Lifecycle & Invariants</b></a></td>
+    <td align="center"><a href="#dual-digest-file-auditing">🔒 <b>Dual-Digest Auditing</b></a></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="#recovery-capsule-anatomy">💊 <b>Recovery Capsule</b></a></td>
+    <td align="center"><a href="#system-limitations--failure-modes">⚠️ <b>Failure Modes</b></a></td>
+    <td align="center"><a href="#installation--verification">🚀 <b>Installation & Setup</b></a></td>
+    <td align="center"><a href="#diagnostics--testing">🧪 <b>Diagnostics & Testing</b></a></td>
+  </tr>
+</table>
+</div>
 
 ---
 
@@ -382,4 +395,6 @@ Pengujian diferensial bayangan menjamin *zero-drift* mutlak:
 
 ## License
 
-[MIT License](LICENSE) — Copyright (c) 2026 Muhammad Ali Jawara Wiratama
+This project is licensed under the [MIT License](LICENSE) — see the [LICENSE](LICENSE) file for details.
+
+Copyright (c) 2026 Muhammad Ali Jawara Wiratama. All rights reserved.

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Muhammad Ali Jawara Wiratama
 """Deterministic Session Evidence & Recovery Engine for Google Antigravity.
 
 Subcommands:
