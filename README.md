@@ -97,27 +97,67 @@ Compaction Guard is decomposed into four discrete, decoupled subsystems:
 
 ### 3. State Machine & Execution Lifecycle
 
-```text
- ┌─────────────────┐       Tool Executed       ┌──────────────────────┐
- │  STEADY_STATE   │ ─────────────────────────►│ TRANSCRIPT_STREAMING  │
- │ (0 Token Tax)   │◄───────────────────────── │ (Byte-Offset Sync)   │
- └────────┬────────┘      Turn Completed       └──────────────────────┘
-          │
-          │ [ Context Window > 256K Tokens ]
-          ▼
- ┌──────────────────────┐   PreInvocation    ┌──────────────────────┐
- │ COMPACTION_TRIGGERED │ ──────────────────►│ CAPSULE_REHYDRATION  │
- │ (CHECKPOINT Flushed) │                    │ (Disk SHA-256 Probe) │
- └──────────────────────┘                    └──────────┬───────────┘
-                                                        │
-                                                        ▼
- ┌──────────────────────┐    Amnesia Query   ┌──────────────────────┐
- │ CONTINUATION_VETO    │◄───────────────────│ RESUMPTION_CHECK     │
- │ (decision: continue) │                    │ (Immediate Horizon)  │
- └──────────┬───────────┘                    └──────────┬───────────┘
-            │                                           │ Normal Turn
-            └──────────────► Agent Continues ◄──────────┘ (decision: allow)
+Compaction Guard models agent execution as a deterministic finite-state machine (FSM) with five core states and strict mathematical invariants ensuring zero-overhead steady-state execution and single-shot fault recovery:
+
+```mermaid
+stateDiagram-v2
+    direction TB
+    [*] --> SteadyState: Session Initialized
+
+    state SteadyState {
+        Idle --> ToolInvoked: Tool Execution Completed
+        ToolInvoked --> StreamSync: PostToolUse Hook Fired
+        StreamSync --> StateSaved: Byte-Offset Streaming (<20ms)
+        StateSaved --> Idle: Atomic Write to .system_generated/
+    }
+
+    SteadyState --> CompactionTriggered: Context Window Limit (~256K tokens)
+
+    state CompactionTriggered {
+        CheckpointFlushed --> DiskAudit: PreInvocation Hook Triggered
+        DiskAudit --> CapsuleSynthesis: Probes Physical SHA-256 and Size
+        CapsuleSynthesis --> CapsuleInjected: Injects systemMessage (<5.8KB)
+    }
+
+    CompactionTriggered --> ResumptionHorizon: Agent Invocations Resume
+
+    state ResumptionHorizon {
+        EvaluatingTurn --> TurnCompleted: Tool Invocation Emitted
+        EvaluatingTurn --> StopEvaluated: Model Stops (NO_TOOL_CALL)
+    }
+
+    ResumptionHorizon --> StopCircuitBreaker: Stop Hook Evaluated
+
+    state StopCircuitBreaker {
+        CheckDisorientation --> VetoContinuation: Amnesia Detected (within 4 steps)
+        CheckDisorientation --> AllowTermination: Valid Work or Turn > 4 steps
+    }
+
+    VetoContinuation --> ResumptionHorizon: decision: "continue" (Counter Incremented)
+    AllowTermination --> SteadyState: decision: "allow" (Normal Completion)
+    AllowTermination --> [*]: Session Terminated
 ```
+
+#### State Transition Matrix
+
+| Current State | Stimulus / Event | Guard Condition | Next State | Action & Emitted Payload |
+| :--- | :--- | :--- | :--- | :--- |
+| **`STEADY_STATE`** | Tool execution completes | Normal turn (no new checkpoint) | **`STREAM_SYNC`** | `PostToolUse` fires; tails `transcript_full.jsonl` from current byte offset. Emits `{}`. |
+| **`STREAM_SYNC`** | JSONL lines parsed | EOF reached cleanly | **`STEADY_STATE`** | Atomically writes `compaction_guard_state.json`. Emits `{}` ($0\text{ token tax}$). |
+| **`STEADY_STATE`** | Context exceeds ~256K tokens | Platform triggers compaction | **`COMPACTION_TRIGGERED`** | Antigravity engine appends `CHECKPOINT` step to transcript. |
+| **`COMPACTION_TRIGGERED`** | Next agent invocation begins | `latest_cp > last_injected` | **`CAPSULE_REHYDRATION`** | `PreInvocation` hook fires; audits modified workspace files on disk (12-char SHA-256 + size). |
+| **`CAPSULE_REHYDRATION`** | Recovery capsule synthesized | Capsule length $\le 5,800$ characters | **`RESUMPTION_HORIZON`** | Injects single-shot `systemMessage` with `metadata.user_markdown`. Updates `last_injected = latest_cp`. |
+| **`RESUMPTION_HORIZON`** | Model finishes turn | `terminationReason == NO_TOOL_CALL` | **`CIRCUIT_BREAKER_EVAL`** | `Stop` hook triggers for amnesia evaluation. |
+| **`CIRCUIT_BREAKER_EVAL`** | Model emits role query or greeting | `latest_cp < step <= latest_cp + 4` AND `blocks < 1` AND `has_tools == False` | **`RESUMPTION_HORIZON`** | Emits `decision: "continue"` with orientation veto prompt. Increments `blocks_map[latest_cp]`. |
+| **`CIRCUIT_BREAKER_EVAL`** | Model produces work or exits | `step > latest_cp + 4` OR `blocks >= 1` OR `has_tools == True` | **`STEADY_STATE`** | Emits `decision: "allow"`. Turn completes normally. |
+
+#### Deterministic Lifecycle Invariants
+
+1. **Zero-Overhead Steady State:** Normal turns without compactions always emit `{}` ($0\text{ tokens}$ added to context window).
+2. **Single-Shot Idempotency:** A `CHECKPOINT` triggers ground-truth recovery capsule injection at most once per compaction event ($N_{\text{injections}} \le 1$).
+3. **Anti-Infinite-Loop Guarantee:** The circuit breaker allows at most one continuation veto per checkpoint event ($\text{blocks\_map}[\text{cp\_key}] \le 1$), strictly preventing infinite execution loops.
+4. **Resumption Horizon Boundary:** Disorientation intercepts are restricted strictly to the immediate post-compaction horizon ($t_{\text{checkpoint}} < t_{\text{resp}} \le t_{\text{checkpoint}} + 4$), eliminating false-positive blocks during later task completion.
+5. **Physical Ground-Truth Verification:** File probe statuses (`DISK_OK` vs `MISSING_ON_DISK`) are computed live against physical disk state, immunizing the agent against hallucinated memory summaries.
 
 ---
 
