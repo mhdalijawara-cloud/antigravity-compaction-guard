@@ -46,7 +46,7 @@ ANSWER_LINE_RE = re.compile(r"^(A\d+\s*:.*)$", re.MULTILINE)
 BOOTSTRAP_AMNESIA_RE = re.compile(
     r"("
     # 1. Indonesian role & initialization questions
-    r"sesi\s+terhubung\s+dengan\s+panduan.*?peran\s+apa|"
+    r"(?:konfirmasi|klarifikasi).*?peran\s+apa|"
     r"(?:sebagai\s+)?peran\s+apa\s+(?:yang\s+)?(?:saya|harus\s+saya|akan\s+saya)\s+(?:jalankan|emban|ambil|pegang|mainkan|kerjakan|bertugas)|"
     r"saya\s+(?:harus\s+)?bertugas\s+sebagai\s+(?:peran\s+)?apa\b|"
     r"peran\s+apa\s+yang\s+(?:saya|harus\s+saya|akan\s+saya)\s+(?:emban|jalankan|ambil|kerjakan)|"

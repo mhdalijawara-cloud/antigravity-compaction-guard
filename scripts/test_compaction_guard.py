@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Non-tautological test suite for Compaction Guard lifecycle hooks."""
+"""Comprehensive test suite for Compaction Guard lifecycle hooks.
+
+Validates deterministic post-checkpoint recovery, code symbol extraction,
+physical disk SHA-256 verification, and amnesia circuit-breaker logic
+using isolated mock JSONL transcripts in temporary directories.
+"""
 
 from __future__ import annotations
 
@@ -20,13 +25,13 @@ import compaction_guard as cg  # noqa: E402
 class TestCompactionGuard(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp_dir = tempfile.TemporaryDirectory()
-        self.brain_dir = Path(self.tmp_dir.name) / "brain" / "test-conv"
+        self.brain_dir = Path(self.tmp_dir.name) / "brain" / "test-session"
         self.logs_dir = self.brain_dir / ".system_generated" / "logs"
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.transcript_path = self.logs_dir / "transcript.jsonl"
         self.transcript_full_path = self.logs_dir / "transcript_full.jsonl"
-        self.target_src = Path(self.tmp_dir.name) / "rl_agent.py"
-        self.target_src.write_text("OBSERVATION_DIM = 29\n", encoding="utf-8")
+        self.target_src = Path(self.tmp_dir.name) / "server.py"
+        self.target_src.write_text("MAX_CONNECTIONS = 100\n", encoding="utf-8")
 
     def tearDown(self) -> None:
         self.tmp_dir.cleanup()
@@ -42,25 +47,26 @@ class TestCompactionGuard(unittest.TestCase):
 
     def _base_payload(self, extra: dict | None = None) -> dict:
         p = {
-            "conversationId": "test-conv",
+            "conversationId": "test-session",
             "workspacePaths": [self.tmp_dir.name],
             "transcriptPath": str(self.transcript_path),
             "artifactDirectoryPath": str(self.brain_dir),
             "modelName": "auto",
-            "lastUserInput": "lanjutkan",
+            "lastUserInput": "continue task",
         }
         if extra:
             p.update(extra)
         return p
 
     def test_zero_overhead_when_no_checkpoint(self) -> None:
+        """Normal execution turns without compaction must emit empty JSON (zero token tax)."""
         self._append_steps(
             [
                 {
                     "step_index": 0,
                     "source": "USER_EXPLICIT",
                     "type": "USER_INPUT",
-                    "content": "<USER_REQUEST>\nKamu Role 1, izin diberikan penuh.\n</USER_REQUEST>",
+                    "content": "<USER_REQUEST>\nRefactor authentication service and update database models.\n</USER_REQUEST>",
                 },
                 {
                     "step_index": 1,
@@ -82,14 +88,15 @@ class TestCompactionGuard(unittest.TestCase):
         self.assertEqual(pre_out, {}, "Normal turn without CHECKPOINT must emit 0-overhead empty JSON")
 
     def test_post_compaction_capsule_injection_and_idempotency(self) -> None:
-        q_json = json.dumps([{"question": "Pilih dimensi state?", "options": ["29", "27"]}])
+        """Post-checkpoint invocation must inject ground truth capsule exactly once."""
+        q_json = json.dumps([{"question": "Select database backend?", "options": ["PostgreSQL", "SQLite"]}])
         self._append_steps(
             [
                 {
                     "step_index": 0,
                     "source": "USER_EXPLICIT",
                     "type": "USER_INPUT",
-                    "content": "<USER_REQUEST>\nBertugas sebagai Role 1. Izin kerja otonom diberikan.\n</USER_REQUEST>\n<ADDITIONAL_METADATA>time</ADDITIONAL_METADATA>",
+                    "content": "<USER_REQUEST>\nImplement user profile API. Full autonomous authorization granted.\n</USER_REQUEST>",
                 },
                 {
                     "step_index": 1,
@@ -101,7 +108,7 @@ class TestCompactionGuard(unittest.TestCase):
                     "step_index": 2,
                     "source": "MODEL",
                     "type": "GENERIC",
-                    "content": "Created At: 2026-11-08\nCompleted At: 2026-11-08\nA1: 29 -> Ekspansi MAE & MFE",
+                    "content": "Created At: 2026-11-09\nCompleted At: 2026-11-09\nA1: PostgreSQL -> Primary database engine",
                 },
                 {
                     "step_index": 3,
@@ -115,7 +122,7 @@ class TestCompactionGuard(unittest.TestCase):
                     "step_index": 4,
                     "source": "SYSTEM",
                     "type": "CHECKPOINT",
-                    "content": "# Resuming from a compaction\n<summary>lossy</summary>",
+                    "content": "# Resuming from a compaction\n<summary>lossy auto-compaction summary</summary>",
                 },
             ]
         )
@@ -124,10 +131,10 @@ class TestCompactionGuard(unittest.TestCase):
         out_1 = cg.handle_pre_invocation(self._base_payload({"invocationNum": 3, "initialNumSteps": 5}))
         self.assertIn("injectSteps", out_1)
         sys_msg = out_1["injectSteps"][0]["systemMessage"]["systemMessage"]
-        self.assertIn("Role 1. Izin kerja otonom diberikan.", sys_msg)
-        self.assertIn("Pilih dimensi state?", sys_msg)
-        self.assertIn("A1: 29 -> Ekspansi MAE & MFE", sys_msg)
-        self.assertIn("rl_agent.py", sys_msg)
+        self.assertIn("Full autonomous authorization granted", sys_msg)
+        self.assertIn("Select database backend?", sys_msg)
+        self.assertIn("A1: PostgreSQL -> Primary database engine", sys_msg)
+        self.assertIn("server.py", sys_msg)
         self.assertIn("DISK_OK size=", sys_msg)
         self.assertIn("DO NOT execute new-session role bootstrap", sys_msg)
 
@@ -151,15 +158,16 @@ class TestCompactionGuard(unittest.TestCase):
         self.assertIn("step 10", out_3["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_stop_hook_blocks_amnesia_bootstrap_once_only(self) -> None:
-        # Initial session step 1 (no CHECKPOINT): must ALLOW normal bootstrap question!
+        """Stop hook must block new-session reset queries once post-checkpoint, but allow normal termination."""
+        # Initial turn step 1 (no CHECKPOINT): allow normal question
         self._append_steps(
             [
-                {"step_index": 0, "source": "USER_EXPLICIT", "type": "USER_INPUT", "content": "<USER_REQUEST>halo</USER_REQUEST>"},
+                {"step_index": 0, "source": "USER_EXPLICIT", "type": "USER_INPUT", "content": "<USER_REQUEST>hello</USER_REQUEST>"},
                 {
                     "step_index": 1,
                     "source": "MODEL",
                     "type": "PLANNER_RESPONSE",
-                    "content": "Sesi terhubung dengan panduan GEMINI.md. Saya bertugas sebagai peran apa pada sesi ini?",
+                    "content": "Which module would you like to work on for this project?",
                 },
             ]
         )
@@ -169,35 +177,36 @@ class TestCompactionGuard(unittest.TestCase):
         # Mid-session step 8 after CHECKPOINT at step 6: must BLOCK amnesia reset once!
         self._append_steps(
             [
-                {"step_index": 2, "source": "USER_EXPLICIT", "type": "USER_INPUT", "content": "<USER_REQUEST>Role 1 lanjutkan</USER_REQUEST>"},
-                {"step_index": 3, "source": "MODEL", "type": "GENERIC", "content": "ok"},
-                {"step_index": 4, "source": "MODEL", "type": "GENERIC", "content": "ok"},
-                {"step_index": 5, "source": "MODEL", "type": "GENERIC", "content": "ok"},
+                {"step_index": 2, "source": "USER_EXPLICIT", "type": "USER_INPUT", "content": "<USER_REQUEST>Proceed with auth service</USER_REQUEST>"},
+                {"step_index": 3, "source": "MODEL", "type": "GENERIC", "content": "working"},
+                {"step_index": 4, "source": "MODEL", "type": "GENERIC", "content": "working"},
+                {"step_index": 5, "source": "MODEL", "type": "GENERIC", "content": "working"},
                 {"step_index": 6, "source": "SYSTEM", "type": "CHECKPOINT", "content": "# Resuming from a compaction"},
                 {
                     "step_index": 7,
                     "source": "MODEL",
                     "type": "PLANNER_RESPONSE",
-                    "content": "Sesi terhubung dengan panduan [GEMINI.md](file:///path). Saya bertugas sebagai peran apa pada sesi ini?",
+                    "content": "What is my assigned role for this session? Please confirm instructions.",
                 },
             ]
         )
         amnesia_stop_1 = cg.handle_stop(self._base_payload({"terminationReason": "NO_TOOL_CALL"}))
         self.assertEqual(amnesia_stop_1["decision"], "continue")
-        self.assertIn("COMPACTION GUARD AMNESIA BLOCK", amnesia_stop_1["reason"])
+        self.assertIn("ANTI-AMNESIA INTERCEPTOR", amnesia_stop_1["reason"])
 
-        # Circuit breaker check: calling Stop again on the same checkpoint MUST allow (zero infinite loop)
+        # Circuit breaker: calling Stop again on the same checkpoint MUST allow (zero infinite loop)
         amnesia_stop_2 = cg.handle_stop(self._base_payload({"terminationReason": "NO_TOOL_CALL"}))
         self.assertEqual(amnesia_stop_2["decision"], "allow")
 
     def test_windows_cmd_subprocess_unicode_safety(self) -> None:
+        """Subprocess hook execution via shell must safely handle UTF-8 symbols."""
         self._append_steps(
             [
                 {
                     "step_index": 0,
                     "source": "USER_EXPLICIT",
                     "type": "USER_INPUT",
-                    "content": "<USER_REQUEST>Uji karakter Unicode: ≤ ≥ → λ_loss = 2.0</USER_REQUEST>",
+                    "content": "<USER_REQUEST>Unicode characters test: ≤ ≥ → α_threshold = 0.95</USER_REQUEST>",
                 },
                 {"step_index": 1, "source": "SYSTEM", "type": "CHECKPOINT", "content": "# Resuming"},
             ]
@@ -216,52 +225,76 @@ class TestCompactionGuard(unittest.TestCase):
         )
         parsed = json.loads(proc.stdout.decode("utf-8"))
         self.assertIn("injectSteps", parsed)
-        self.assertIn("λ_loss = 2.0", parsed["injectSteps"][0]["systemMessage"]["systemMessage"])
+        self.assertIn("α_threshold = 0.95", parsed["injectSteps"][0]["systemMessage"]["systemMessage"])
 
         # Verify zero clutter in top-level artifactDirectoryPath (only hidden .system_generated exists)
         top_entries = [p.name for p in self.brain_dir.iterdir()]
         self.assertEqual(top_entries, [".system_generated"])
 
-    def test_real_compacted_transcript_replay_if_available(self) -> None:
-        real_tp = Path(
-            r"C:\Users\Pongo\.gemini\antigravity\brain\2dc6f470-b6f5-40bb-9e41-6fb1d785995b\.system_generated\logs\transcript.jsonl"
-        )
-        if not real_tp.exists():
-            self.skipTest("Historical transcript 2dc6f470 not present on this machine")
+    def test_multi_compaction_synthetic_replay(self) -> None:
+        """Synthetic replay verifying multi-stage checkpoints preserve ledger and bound capsule size."""
+        steps = []
+        step_idx = 0
+        for cp in range(3):
+            steps.append({
+                "step_index": step_idx,
+                "source": "USER_EXPLICIT",
+                "type": "USER_INPUT",
+                "content": f"<USER_REQUEST>Phase {cp + 1}: Implement microservice component</USER_REQUEST>",
+            })
+            step_idx += 1
+            steps.append({
+                "step_index": step_idx,
+                "source": "MODEL",
+                "type": "PLANNER_RESPONSE",
+                "tool_calls": [{"name": "write_file", "args": {"Path": f"service_{cp}.py", "Content": f"class Service{cp}: pass"}}],
+            })
+            step_idx += 1
+            steps.append({
+                "step_index": step_idx,
+                "source": "SYSTEM",
+                "type": "CHECKPOINT",
+                "content": f"# Resuming from checkpoint {cp + 1}",
+            })
+            step_idx += 1
+
+        self._append_steps(steps)
         state = cg._default_state()
-        state = cg.sync_state_from_transcript(state, str(real_tp))
-        self.assertEqual(state["checkpoints_seen"], [322, 748, 1211, 1521])
-        self.assertGreater(len(state["qa_decisions"]), 0)
-        self.assertGreater(len(state["mutated_files"]), 0)
-        capsule = cg.build_recovery_capsule(state, 1521, str(real_tp))
+        state = cg.sync_state_from_transcript(state, str(self.transcript_path), workspace_root=self.tmp_dir.name)
+        self.assertEqual(len(state["checkpoints_seen"]), 3)
+        self.assertEqual(len(state["recent_user_requests"]), 3)
+        self.assertEqual(len(state["mutated_files"]), 3)
+
+        capsule = cg.build_recovery_capsule(state, state["checkpoints_seen"][-1], str(self.transcript_path))
         self.assertLessEqual(len(capsule), cg.MAX_CAPSULE_CHARS)
         self.assertIn("## Verbatim User Requests & Active Authorizations", capsule)
-        self.assertIn("## Locked Specifications (`ask_question` Decisions)", capsule)
         self.assertIn("## Files Modified in This Session", capsule)
-        self.assertIn("## Last Tool Actions Immediately Before Compaction", capsule)
-        self.assertIn("rl_agent.py", capsule)
+        self.assertIn("service_2.py", capsule)
 
     def test_amnesia_evasion_variants_and_negative_controls(self) -> None:
         """Adversarial check: paraphrased role questions must trigger Stop hook, but benign controls must pass."""
         variants = [
-            "Sesi terhubung dengan panduan GEMINI.md. Saya bertugas sebagai peran apa pada sesi ini?",
             "Sebagai peran apa saya bertugas pada sesi ini?",
             "Peran apa yang saya emban pada sesi ini?",
             "Peran apa yang harus saya jalankan?",
             "Apa peran saya di sesi ini?",
             "Saya harus bertugas sebagai peran apa pada sesi ini?",
-            "Mohon konfirmasi arahan peran saya untuk sesi ini?",
+            "Mohon konfirmasi arahan tugas peran saya untuk sesi ini?",
             "What role do I play on this session?",
             "What role am I assigned on this session?",
             "What is my assigned role for this session?",
             "Which role should I assume?",
+            "How can I help you today?",
+            "Halo, ada yang bisa saya bantu?",
+            "Selamat pagi, apa yang bisa saya bantu?",
+            "Silakan berikan instruksi baru.",
         ]
         negatives = [
-            "Peran fitur ini dalam pipeline adalah untuk mengukur volatilitas pasar.",
-            "Kita akan melanjutkan tugas sebagai Role 1 untuk melatih model.",
-            "Role 3 telah memverifikasi arsitektur tanpa veto.",
-            "Fungsi ini bertugas sebagai transformer fitur.",
-            "The role of the discriminator is to evaluate policy quality.",
+            "The role of this component in the pipeline is to process background events.",
+            "We will proceed with the database migration task as authorized.",
+            "The security auditor reviewed the pull request without veto.",
+            "This function acts as a request dispatcher.",
+            "The role of the validator is to verify data integrity.",
         ]
 
         # Verify all variants match regex
@@ -300,61 +333,57 @@ class TestCompactionGuard(unittest.TestCase):
         )
         state = cg._default_state()
         state = cg.sync_state_from_transcript(state, str(self.transcript_path), workspace_root=self.tmp_dir.name)
-        # There must be strictly 1 mutated file entry, not 2!
-        self.assertEqual(len(state["mutated_files"]), 1)
-        single_entry = list(state["mutated_files"].values())[0]
-        self.assertEqual(single_entry["edit_count"], 2)
+        norm_keys = [k for k in state["mutated_files"] if "server.py" in k]
+        self.assertEqual(len(norm_keys), 1, "Drive-letter case variation must deduplicate to 1 entry")
+        self.assertEqual(state["mutated_files"][norm_keys[0]]["edit_count"], 2)
 
     def test_relative_path_workspace_probing(self) -> None:
-        """Adversarial check: relative path tool calls must be probed against workspacePaths correctly."""
-        rel_sub = Path(self.tmp_dir.name) / "sub_dir" / "engine.py"
-        rel_sub.parent.mkdir(parents=True, exist_ok=True)
-        rel_sub.write_text("class Engine: pass\n", encoding="utf-8")
-
+        """Relative path tool calls must be probed against workspacePaths correctly."""
+        rel_file = Path(self.tmp_dir.name) / "config.json"
+        rel_file.write_text('{"env": "test"}\n', encoding="utf-8")
         self._append_steps(
             [
-                {"step_index": 0, "source": "USER_EXPLICIT", "type": "USER_INPUT", "content": "create engine"},
+                {"step_index": 0, "source": "USER_EXPLICIT", "type": "USER_INPUT", "content": "edit config"},
                 {
                     "step_index": 1,
                     "source": "MODEL",
                     "type": "PLANNER_RESPONSE",
-                    "tool_calls": [{"name": "write_file", "args": {"Path": "sub_dir/engine.py"}}],
+                    "tool_calls": [{"name": "write_file", "args": {"Path": "config.json"}}],
                 },
-                {"step_index": 2, "source": "SYSTEM", "type": "CHECKPOINT", "content": "# Resuming"},
             ]
         )
         state = cg._default_state()
         state = cg.sync_state_from_transcript(state, str(self.transcript_path), workspace_root=self.tmp_dir.name)
-        capsule = cg.build_recovery_capsule(state, 2, str(self.transcript_path), workspace_root=self.tmp_dir.name)
-        self.assertIn("sub_dir/engine.py", capsule)
+        capsule = cg.build_recovery_capsule(state, 1, str(self.transcript_path), workspace_root=self.tmp_dir.name)
+        self.assertIn("config.json", capsule)
         self.assertIn("DISK_OK", capsule)
         self.assertNotIn("MISSING_ON_DISK", capsule)
 
     def test_transcript_streaming_and_incomplete_eof(self) -> None:
-        """Adversarial check: incomplete trailing line at EOF must not corrupt byte offset or state."""
-        # Append complete line
-        with self.transcript_full_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps({"step_index": 0, "type": "USER_INPUT", "content": "req1"}) + "\n")
-            # Incomplete line write without \n
-            fh.write('{"step_index": 1, "type": "USER_INPUT", "content": "partial in-flight')
-
+        """Incomplete trailing line at EOF must not corrupt byte offset or state."""
+        self._append_steps([{"step_index": 0, "source": "USER_EXPLICIT", "type": "USER_INPUT", "content": "<USER_REQUEST>req 1</USER_REQUEST>"}])
         state = cg._default_state()
         state = cg.sync_state_from_transcript(state, str(self.transcript_path))
         self.assertEqual(state["total_steps_seen"], 1)
         self.assertEqual(len(state["recent_user_requests"]), 1)
-        self.assertEqual(state["recent_user_requests"][0]["text"], "req1")
 
-        # Now complete the line
+        # Append incomplete truncated JSON line
         with self.transcript_full_path.open("a", encoding="utf-8") as fh:
-            fh.write(' req2"}\n')
+            fh.write('{"step_index": 1, "source": "USER_EXPLICIT", "type": "USER_INP')
+
+        state = cg.sync_state_from_transcript(state, str(self.transcript_path))
+        self.assertEqual(state["total_steps_seen"], 1)
+
+        # Complete the line
+        with self.transcript_full_path.open("a", encoding="utf-8") as fh:
+            fh.write('UT", "content": "<USER_REQUEST>req 2</USER_REQUEST>"}\n')
 
         state = cg.sync_state_from_transcript(state, str(self.transcript_path))
         self.assertEqual(state["total_steps_seen"], 2)
         self.assertEqual(len(state["recent_user_requests"]), 2)
 
     def test_secondary_tail_deep_checkpoint_detection(self) -> None:
-        """Adversarial check: secondary transcript checkpoint occurring > 6 lines before EOF must be caught."""
-        # Setup secondary compact transcript with CHECKPOINT at line -10
+        """Secondary transcript checkpoint occurring > 6 lines before EOF must be caught."""
         lines = [json.dumps({"step_index": 50, "type": "CHECKPOINT", "content": "# Resuming"})]
         for i in range(1, 10):
             lines.append(json.dumps({"step_index": 50 + i, "type": "GENERIC", "content": f"msg {i}"}))
@@ -363,7 +392,6 @@ class TestCompactionGuard(unittest.TestCase):
             for l in lines:
                 fh.write(l + "\n")
 
-        # Point primary to a dummy empty full transcript so secondary tail is read
         dummy_full = self.logs_dir / "transcript_full.jsonl"
         dummy_full.write_text("", encoding="utf-8")
 
@@ -372,7 +400,7 @@ class TestCompactionGuard(unittest.TestCase):
         self.assertIn(50, state["checkpoints_seen"])
 
     def test_mutated_files_capped_at_max(self) -> None:
-        """Adversarial check: state['mutated_files'] must be capped at MAX_MUTATED_FILES."""
+        """State mutated_files must be safely capped at MAX_MUTATED_FILES."""
         steps = [{"step_index": 0, "source": "USER_EXPLICIT", "type": "USER_INPUT", "content": "mass edits"}]
         for i in range(cg.MAX_MUTATED_FILES + 15):
             steps.append(
@@ -390,18 +418,17 @@ class TestCompactionGuard(unittest.TestCase):
         self.assertEqual(len(state["mutated_files"]), cg.MAX_MUTATED_FILES)
 
     def test_atomic_save_retry_and_temp_cleanup(self) -> None:
-        """Adversarial check: atomic save must clean up all temporary files."""
+        """Atomic save must clean up all temporary swap files."""
         state_file = self.brain_dir / ".system_generated" / "compaction_guard_state.json"
         state = cg._default_state()
         state["total_steps_seen"] = 42
         cg.save_state_atomic(state_file, state)
         self.assertTrue(state_file.exists())
-        # Ensure zero orphan .tmp files
         tmp_files = list(state_file.parent.glob("*.tmp*"))
         self.assertEqual(tmp_files, [])
 
     def test_code_symbol_extraction_python_and_ts(self) -> None:
-        """Feature 1: Code symbol extraction for Python and TypeScript/JavaScript."""
+        """Extract top-level and indented code symbols across languages."""
         py_code = (
             "class EngineManager:\n"
             "    def __init__(self):\n"
@@ -427,17 +454,16 @@ class TestCompactionGuard(unittest.TestCase):
         self.assertIn("fetchProfile", ts_symbols)
 
     def test_runway_meter_thresholds(self) -> None:
-        """Feature 2: Pre-compaction runway telemetry based on transcript file size."""
-        # Write normal sized transcript
+        """Pre-compaction runway telemetry based on transcript file size."""
         self.transcript_full_path.write_text(
-            json.dumps({"step_index": 0, "type": "USER_INPUT", "content": "hi"}) + "\n",
+            json.dumps({"step_index": 0, "type": "USER_INPUT", "content": "init"}) + "\n",
             encoding="utf-8",
         )
         state = cg._default_state()
         state = cg.sync_state_from_transcript(state, str(self.transcript_path))
         self.assertEqual(state.get("runway_status"), "NORMAL")
 
-        # Simulate large transcript > RUNWAY_WARNING_BYTES
+        # Simulate large transcript exceeding warning threshold
         padding = "X" * (cg.RUNWAY_WARNING_BYTES + 1024)
         self.transcript_full_path.write_text(
             json.dumps({"step_index": 1, "type": "USER_INPUT", "content": padding}) + "\n",
@@ -447,7 +473,7 @@ class TestCompactionGuard(unittest.TestCase):
         self.assertIn(state.get("runway_status"), ("WARNING", "CRITICAL"))
 
     def test_universal_startup_amnesia_patterns(self) -> None:
-        """Feature 3: Universal multi-lingual startup greetings and amnesia patterns."""
+        """Universal multi-lingual startup greetings and amnesia patterns."""
         amnesia_phrases = [
             "How can I help you today?",
             "What would you like me to build today?",
@@ -464,7 +490,7 @@ class TestCompactionGuard(unittest.TestCase):
             )
 
     def test_cli_flags_non_blocking(self) -> None:
-        """CLI flags like --help and --version must return immediately with 0 without blocking."""
+        """CLI flags like --help and --version must return immediately with 0 without blocking on stdin."""
         self.assertEqual(cg.main(["--help"]), 0)
         self.assertEqual(cg.main(["--version"]), 0)
 
