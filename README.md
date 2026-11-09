@@ -91,7 +91,7 @@ Compaction Guard is decomposed into four discrete, decoupled subsystems:
 | Layer | Subsystem | File / Interface | Architectural Responsibility |
 | :--- | :--- | :--- | :--- |
 | **L1** | **Interception Fabric** | [hooks.json](file:///C:/Users/Pongo/.gemini/config/plugins/compaction-guard/hooks.json) | Mounts native lifecycle hooks (`PostToolUse`, `PreInvocation`, `Stop`) with zero token overhead during regular execution turns. |
-| **L2** | **Continuous Flight Recorder** | [compaction_guard.py](file:///C:/Users/Pongo/.gemini/config/plugins/compaction-guard/scripts/compaction_guard.py) (`post-tool`) | Tails `transcript_full.jsonl` using buffered $O(1)$ byte-offset streaming (`< 20 ms`). Resilient to partial EOF line writes. Extracts polyglot code symbols, user authorizations, and disk hashes into `.system_generated/compaction_guard_state.json`. |
+| **L2** | **Continuous Flight Recorder** | [compaction_guard.py](file:///C:/Users/Pongo/.gemini/config/plugins/compaction-guard/scripts/compaction_guard.py) (`post-tool`) | Tails `transcript_full.jsonl` using buffered `O(1)` byte-offset streaming (`< 20 ms`). Resilient to partial EOF line writes. Extracts polyglot code symbols, user authorizations, and disk hashes into `.system_generated/compaction_guard_state.json`. |
 | **L3** | **Cryptographic State Rehydrator** | [compaction_guard.py](file:///C:/Users/Pongo/.gemini/config/plugins/compaction-guard/scripts/compaction_guard.py) (`pre-invocation`) | Single-shot checkpoint interceptor. Probes physical disk files (12-char SHA-256 + byte size), formats the ~5,800-character Ground-Truth Recovery Capsule, and injects it via native `systemMessage`. |
 | **L4** | **Anti-Amnesia Circuit Breaker & Directive** | [compaction_guard.py](file:///C:/Users/Pongo/.gemini/config/plugins/compaction-guard/scripts/compaction_guard.py) (`stop`) & [rules/AGENTS.md](file:///C:/Users/Pongo/.gemini/config/plugins/compaction-guard/rules/AGENTS.md) | Single-shot circuit breaker per checkpoint preventing new-session role queries within the post-compaction horizon (`latest_cp < step <= latest_cp + 4`). Enforces disk re-verification (`Freshness`) before modifying previously edited files. |
 
@@ -143,20 +143,23 @@ stateDiagram-v2
 | Current State | Stimulus / Event | Guard Condition | Next State | Action & Emitted Payload |
 | :--- | :--- | :--- | :--- | :--- |
 | **`STEADY_STATE`** | Tool execution completes | Normal turn (no new checkpoint) | **`STREAM_SYNC`** | `PostToolUse` fires; tails `transcript_full.jsonl` from current byte offset. Emits `{}`. |
-| **`STREAM_SYNC`** | JSONL lines parsed | EOF reached cleanly | **`STEADY_STATE`** | Atomically writes `compaction_guard_state.json`. Emits `{}` ($0\text{ token tax}$). |
+| **`STREAM_SYNC`** | JSONL lines parsed | EOF reached cleanly | **`STEADY_STATE`** | Atomically writes `compaction_guard_state.json`. Emits `{}` (0 token tax). |
 | **`STEADY_STATE`** | Context exceeds ~256K tokens | Platform triggers compaction | **`COMPACTION_TRIGGERED`** | Antigravity engine appends `CHECKPOINT` step to transcript. |
 | **`COMPACTION_TRIGGERED`** | Next agent invocation begins | `latest_cp > last_injected` | **`CAPSULE_REHYDRATION`** | `PreInvocation` hook fires; audits modified workspace files on disk (12-char SHA-256 + size). |
-| **`CAPSULE_REHYDRATION`** | Recovery capsule synthesized | Capsule length $\le 5,800$ characters | **`RESUMPTION_HORIZON`** | Injects single-shot `systemMessage` with `metadata.user_markdown`. Updates `last_injected = latest_cp`. |
+| **`CAPSULE_REHYDRATION`** | Recovery capsule synthesized | Capsule length `<= 5,800` characters | **`RESUMPTION_HORIZON`** | Injects single-shot `systemMessage` with `metadata.user_markdown`. Updates `last_injected = latest_cp`. |
 | **`RESUMPTION_HORIZON`** | Model finishes turn | `terminationReason == NO_TOOL_CALL` | **`CIRCUIT_BREAKER_EVAL`** | `Stop` hook triggers for amnesia evaluation. |
 | **`CIRCUIT_BREAKER_EVAL`** | Model emits role query or greeting | `latest_cp < step <= latest_cp + 4` AND `blocks < 1` AND `has_tools == False` | **`RESUMPTION_HORIZON`** | Emits `decision: "continue"` with orientation veto prompt. Increments `blocks_map[latest_cp]`. |
 | **`CIRCUIT_BREAKER_EVAL`** | Model produces work or exits | `step > latest_cp + 4` OR `blocks >= 1` OR `has_tools == True` | **`STEADY_STATE`** | Emits `decision: "allow"`. Turn completes normally. |
 
 #### Deterministic Lifecycle Invariants
 
-1. **Zero-Overhead Steady State:** Normal turns without compactions always emit `{}` ($0\text{ tokens}$ added to context window).
-2. **Single-Shot Idempotency:** A `CHECKPOINT` triggers ground-truth recovery capsule injection at most once per compaction event ($N_{\text{injections}} \le 1$).
-3. **Anti-Infinite-Loop Guarantee:** The circuit breaker allows at most one continuation veto per checkpoint event ($\text{blocks\_map}[\text{cp\_key}] \le 1$), strictly preventing infinite execution loops.
-4. **Resumption Horizon Boundary:** Disorientation intercepts are restricted strictly to the immediate post-compaction horizon ($t_{\text{checkpoint}} < t_{\text{resp}} \le t_{\text{checkpoint}} + 4$), eliminating false-positive blocks during later task completion.
+1. **Zero-Overhead Steady State:** Normal turns without compactions always emit `{}` (0 tokens added to context window).
+2. **Single-Shot Idempotency:** A `CHECKPOINT` triggers ground-truth recovery capsule injection at most once per compaction event (`N_injections <= 1`).
+3. **Anti-Infinite-Loop Guarantee (`O(1)` Continuation Bound):** The circuit breaker strictly bounds continuation vetoes to at most one per checkpoint event (`N_veto <= 1`):
+   - **Trigger Guard:** A veto is permitted if and only if `blocks_map[cp_key] == 0`. Upon emitting a veto, the state counter is atomically incremented to `1`.
+   - **Deterministic Fallback:** If the agent fails to self-orient and repeats an amnesia query on the subsequent turn, the guard check (`already_blocked < 1`) evaluates to `False`, forcing the hook to unconditionally return `decision: "allow"`.
+   - **Infinite Loop Immunity:** The agent loop is guaranteed to terminate within `<= 1` re-entry attempt, safely escalating the prompt to the user rather than risking an unbounded execution or quota-draining loop. Independent counter buckets (`cp_key = str(latest_cp)`) ensure subsequent compactions later in the session retain their own isolated one-shot protection.
+4. **Resumption Horizon Boundary:** Disorientation intercepts are restricted strictly to the immediate post-compaction horizon (`latest_cp < resp_step <= latest_cp + 4`), eliminating false-positive blocks during later task completion.
 5. **Physical Ground-Truth Verification:** File probe statuses (`DISK_OK` vs `MISSING_ON_DISK`) are computed live against physical disk state, immunizing the agent against hallucinated memory summaries.
 
 ---
@@ -164,7 +167,7 @@ stateDiagram-v2
 ## Core Capabilities
 
 ### 1. Continuous Flight Recorder (`PostToolUse`)
-- Incrementally tails `transcript_full.jsonl` using buffered byte-offset streaming (`< 20 ms`, $O(1)$ memory).
+- Incrementally tails `transcript_full.jsonl` using buffered byte-offset streaming (`< 20 ms`, `O(1)` memory).
 - Tolerates partial line writes at EOF during concurrent logging without offset desynchronization.
 - **Polyglot Code Symbol Extraction:** Extracts modified top-level and member definitions across:
   - **Python:** `class`, `def`, `async def`
@@ -185,10 +188,10 @@ stateDiagram-v2
   - Tool actions executed immediately prior to compaction.
 
 ### 3. Mid-Session Amnesia Circuit Breaker (`Stop`)
-- Single-shot circuit breaker per `CHECKPOINT`.
-- Intercepts new-session onboarding greetings (*"How can I help you today?"*, *"Apa peran saya pada sesi ini?"*) emitted immediately after compaction (`latest_cp < step <= latest_cp + 4`).
-- Emits `decision: "continue"` with an orientation prompt reminding the agent of its active task and granted authorizations.
-- Bounded to the immediate post-compaction horizon to prevent false-positive blocks when a session is legitimately completed later.
+- **Single-Shot per Checkpoint (`N_veto <= 1`):** Strictly bounds continuation vetoes to at most 1 attempt per compaction event. If the model repeats an amnesia query on the second turn, the hook unconditionally yields `decision: "allow"` to eliminate infinite execution loops.
+- **Immediate Disorientation Horizon:** Intercepts onboarding greetings (*"How can I help you today?"*, *"Apa peran saya pada sesi ini?"*) strictly when emitted within the immediate resumption window (`latest_cp < resp_step <= latest_cp + 4`).
+- **Context Re-Orientation:** Emits `decision: "continue"` with an authoritative orientation prompt reminding the agent of active tasks, granted authorizations, and disk re-verification mandates.
+- **False-Positive Immunity:** Turns occurring > 4 steps past the checkpoint or turns that executed actual tools (`has_tools == True`) are never blocked, allowing normal task completion and legitimate sign-offs.
 
 ### 4. Transcript Runway Telemetry
 - Monitors raw transcript byte growth and emits real-time status indicators:
