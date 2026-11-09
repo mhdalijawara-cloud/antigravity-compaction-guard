@@ -1,7 +1,7 @@
 # Antigravity Compaction Guard
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Antigravity: 2.0+](https://img.shields.io/badge/Antigravity-2.0%2B%20(v2.29.0)-orange.svg)](plugin.json)
+[![Antigravity: 2.0](https://img.shields.io/badge/Antigravity-2.0%2B%20(v2.29.0)-orange.svg)](plugin.json)
 [![Python: 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 
 Deterministic lifecycle hook engine for Google Antigravity (`agy`). Prevents agent context amnesia, tracks modified code symbols, and verifies physical disk state across auto-compaction checkpoints with zero token overhead during normal turns.
@@ -12,8 +12,8 @@ Deterministic lifecycle hook engine for Google Antigravity (`agy`). Prevents age
 
 When an Antigravity conversation trajectory approaches its context boundary (~256K tokens, defined in `Store.ContextWindow()`), the platform triggers a **checkpoint compaction**:
 
-1. **Loss of Code Symbol Context (Issue #1245):** Raw tool outputs and syntax structures are collapsed into lossy prose summaries, removing exact function signatures, class interfaces, and schema definitions from active memory.
-2. **"File Still in Memory" Hallucination (Issue #1294):** The checkpoint summary frequently claims previously modified files remain available in working memory. The agent assumes it retains exact file contents, avoids reading from disk, and applies misaligned edits.
+1. **Loss of Code Symbol Context:** Raw tool outputs and syntax structures are collapsed into lossy prose summaries, removing exact function signatures, class interfaces, and schema definitions from active memory.
+2. **"File Still in Memory" Hallucination:** The checkpoint summary frequently claims previously modified files remain available in working memory. The agent assumes it retains exact file contents, avoids reading from disk, and applies misaligned edits.
 3. **Mid-Session Re-Bootstrapping:** Agents often lose session continuity post-compaction, emitting generic onboarding greetings (*"How can I help you today?"*) or asking to re-confirm roles and project scopes mid-task.
 
 Because native `PreCompact` and `PostCompact` hooks are not yet exposed by the platform (upstream feature request `#1317`), compaction cannot be intercepted beforehand. Compaction Guard provides a deterministic continuous recorder and post-checkpoint ground truth enforcement layer to resolve these limitations.
