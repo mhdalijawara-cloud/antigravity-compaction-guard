@@ -1,7 +1,7 @@
 {
   "name": "compaction-guard",
   "displayName": "Compaction Guard (Universal Anti-Amnesia)",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Universal 3-hook lifecycle shield (PostToolUse, PreInvocation, Stop) with physical disk SHA-256 validation, code symbol preservation, and runway telemetry to prevent agent context amnesia across auto-compaction checkpoints.",
   "author": "Muhammad Ali Jawara Wiratama",
   "license": "MIT",

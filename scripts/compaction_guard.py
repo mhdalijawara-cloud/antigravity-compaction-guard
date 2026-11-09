@@ -27,7 +27,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 STATE_SCHEMA_VERSION = 1
 MAX_RECENT_USER_REQUESTS = 10
 MAX_QA_DECISIONS = 15
@@ -46,23 +46,26 @@ ANSWER_LINE_RE = re.compile(r"^(A\d+\s*:.*)$", re.MULTILINE)
 BOOTSTRAP_AMNESIA_RE = re.compile(
     r"("
     # 1. Indonesian role & initialization questions
-    r"(?:konfirmasi|klarifikasi).*?peran\s+apa|"
-    r"(?:sebagai\s+)?peran\s+apa\s+(?:yang\s+)?(?:saya|harus\s+saya|akan\s+saya)\s+(?:jalankan|emban|ambil|pegang|mainkan|kerjakan|bertugas)|"
-    r"saya\s+(?:harus\s+)?bertugas\s+sebagai\s+(?:peran\s+)?apa\b|"
-    r"peran\s+apa\s+yang\s+(?:saya|harus\s+saya|akan\s+saya)\s+(?:emban|jalankan|ambil|kerjakan)|"
-    r"(?:apa|mana)\s+peran\s+saya\s+(?:di|pada|dalam|untuk)\s+sesi\s+ini|"
-    r"bertugas\s+sebagai\s+peran\s+apa\s+(?:di|pada|dalam|untuk)\s+sesi\s+ini|"
-    r"sebagai\s+peran\s+apa\s+(?:saya\s+)?(?:bertugas|berjalan)\s+(?:di|pada|dalam|untuk)\s+sesi\s+ini|"
-    r"(?:mohon\s+)?(?:konfirmasi|arahan|kejelasan).*?(?:peran|tugas\s+peran)\s+(?:saya|apa).*?sesi|"
-    r"(?:halo|selamat\s+(?:pagi|siang|sore|malam)).*?ada\s+yang\s+bisa\s+(?:saya|kami)\s+bantu|"
-    r"(?:halo|selamat\s+(?:pagi|siang|sore|malam)).*?apa\s+yang\s+bisa\s+saya\s+bantu|"
+    r"(?:konfirmasi|klarifikasi|arahan|kejelasan|menanyakan).*?peran\s*(?:apa|saya|yang)|"
+    r"(?:sebagai\s+)?peran\s+apa\s+(?:yang\s+)?(?:harus\s+|akan\s+|perlu\s+)?(?:saya|anda\s+inginkan\s+untuk\s+saya)\s+(?:jalankan|emban|ambil|pegang|mainkan|kerjakan|bertugas)|"
+    r"saya\s+(?:harus\s+|akan\s+|perlu\s+)?bertugas\s+sebagai\s+(?:peran\s+)?apa\b|"
+    r"peran\s+apa\s+yang\s+(?:harus\s+|akan\s+|perlu\s+)?(?:saya|anda\s+inginkan\s+untuk\s+saya)\s+(?:emban|jalankan|ambil|kerjakan)|"
+    r"(?:apa|mana)\s+(?:sebenarnya\s+)?peran\s+saya\s+(?:di|pada|dalam|untuk)\s+(?:sesi|proyek|project|percakapan)\s+ini|"
+    r"bertugas\s+sebagai\s+peran\s+apa\s+(?:di|pada|dalam|untuk)\s+(?:sesi|proyek|project|percakapan)\s+ini|"
+    r"sebagai\s+peran\s+apa\s+(?:saya\s+)?(?:bertugas|berjalan)\s+(?:di|pada|dalam|untuk)\s+(?:sesi|proyek|project|percakapan)\s+ini|"
+    r"(?:mohon\s+)?(?:konfirmasi|arahan|kejelasan).*?(?:peran|tugas\s+peran)\s+(?:saya|apa|yang)|"
+    r"(?:apakah\s+)?ada\s+yang\s+bisa\s+(?:saya|kami)\s+(?:bantu|membantu)\b|"
+    r"(?:ada\s+yang\s+bisa\s+dibantu\b)|"
+    r"(?:bagaimana|apa\s+yang)\s+(?:saya\s+)?(?:bisa|dapat)\s+(?:saya\s+)?(?:bantu|membantu|kerjakan)\b|"
+    r"(?:halo|selamat\s+(?:pagi|siang|sore|malam)).*?(?:bisa\s+(?:saya|kami)\s+(?:bantu|membantu)|apa\s+yang\s+bisa\s+saya\s+(?:bantu|membantu))|"
     r"(?:apa\s+yang\s+ingin\s+anda\s+kerjakan|silakan\s+berikan\s+(?:instruksi|arahan|tugas\s+baru))|"
     # 2. English role & assignment queries
-    r"what\s+(?:role|assignment)\s+(?:do\s+i|should\s+i|am\s+i|will\s+i)\s+(?:play|assume|take|have|serve|perform|assigned|given)|"
-    r"what\s+is\s+my\s+(?:assigned\s+)?role\s+(?:for|in|on)\s+this\s+session|"
-    r"which\s+role\s+(?:should|am|do)\s+i\s+(?:assume|take|play|assigned)|"
+    r"(?:what|which)\s+(?:role|assignment)\s+(?:do\s+i|should\s+i|am\s+i|will\s+i|would\s+you\s+like\s+me\s+to|do\s+you\s+want\s+me\s+to|am\s+i\s+supposed\s+to)\s+(?:play|assume|take|have|serve|perform|assigned|given)|"
+    r"(?:what|which)\s+is\s+my\s+(?:assigned\s+)?role\s+(?:for|in|on)\s+this\s+(?:session|project|conversation|workspace)|"
+    r"(?:please\s+)?(?:specify|clarify|confirm)\s+(?:my\s+role|the\s+role\s+you\s+want\s+me\s+to\s+assume)|"
     # 3. Universal startup greeting / amnesia prompts
-    r"how\s+can\s+i\s+(?:help|assist)\s+you\s+(?:today|with\s+this\s+session)|"
+    r"(?:how|what)\s+(?:can|may|could)\s+i\s+(?:help|assist)\s+(?:you\s+)?(?:today|with|for\s+this\s+session)?|"
+    r"what\s+can\s+i\s+(?:help|assist)\s+you\s+(?:with|today)|"
     r"i\s+am\s+ready\s+to\s+(?:help|assist|start|begin).*?what\s+(?:would|should|can)|"
     r"what\s+would\s+you\s+like\s+(?:me\s+to|us\s+to)\s+(?:work\s+on|build|do\s+today)|"
     r"please\s+provide\s+(?:the|your)\s+(?:task|project|instructions|requirements)\s+(?:to\s+get\s+started|for\s+this\s+session)"
@@ -71,11 +74,17 @@ BOOTSTRAP_AMNESIA_RE = re.compile(
 )
 
 # Structural code symbol extractor (Anti-Issue #1245)
+# Supports Python, TypeScript, JavaScript, Rust, Go, Java, and C#
 SYMBOL_RE = re.compile(
     r"(?:"
-    r"^\s*(?:export\s+)?(?:default\s+)?(?:class|interface|type|struct|enum|trait)\s+([A-Za-z0-9_]+)|"
-    r"^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:def|function|fn|func)\s+([A-Za-z0-9_]+)|"
-    r"^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?\("
+    # Types/Classes/Structs/Interfaces/Enums across TS, Rust, Python, Go, Java, C#
+    r"^\s*(?:(?:export|default|pub(?:\([^)]+\))?|public|private|protected|internal|abstract|final|sealed|static)\s+)*"
+    r"(?:class|interface|type|struct|enum|trait|contract)\s+([A-Za-z0-9_]+)|"
+    # Functions and methods across Python, JS/TS, Rust, Go, Java, C#
+    r"^\s*(?:(?:export|default|pub(?:\([^)]+\))?|public|private|protected|internal|abstract|final|sealed|static|async)\s+)*"
+    r"(?:def|function\*?|fn|func)\s*(?:\([^)]+\)\s*)?([A-Za-z0-9_]+)|"
+    # Variable/const arrow functions with optional type annotations
+    r"^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z0-9_]+)(?:\s*:\s*[^=]+)?\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z0-9_]+)\s*=>"
     r")",
     re.MULTILINE,
 )
@@ -88,6 +97,14 @@ MUTATING_DIRECT_TOOLS = {
     "mcp_filesystem_append_file",
 }
 MUTATING_MCP_TOOLS = {"edit_file", "write_file", "append_file", "move_file"}
+
+
+DISALLOWED_SYMBOLS = {
+    "if", "else", "elif", "for", "while", "return", "switch", "case", "break",
+    "continue", "default", "type", "func", "fn", "def", "class", "struct",
+    "enum", "interface", "trait", "package", "import", "export", "var", "let",
+    "const", "true", "false", "null", "nil", "None", "undefined", "async", "await",
+}
 
 
 def _default_state() -> dict[str, Any]:
@@ -119,30 +136,31 @@ def _extract_code_symbols(text: str) -> list[str]:
         return []
     found: list[str] = []
     seen: set[str] = set()
-    # Scan first 24KB of text to keep execution bounded < 2ms
-    for m in SYMBOL_RE.finditer(text[:24576]):
+    # Scan first 64KB of text to keep execution bounded < 2ms while covering realistic edits
+    for m in SYMBOL_RE.finditer(text[:65536]):
         for g in m.groups():
-            if g and g not in seen:
+            if g and g not in seen and g not in DISALLOWED_SYMBOLS:
                 seen.add(g)
                 found.append(g)
-                if len(found) >= 8:
+                if len(found) >= 12:
                     return found
     return found
 
 
-def _unwrap_json_arg(value: Any) -> Any:
+def _unwrap_json_arg(value: Any, max_depth: int = 2) -> Any:
     """Decode stringified JSON tool arguments used in Antigravity transcripts."""
-    if not isinstance(value, str):
-        return value
-    stripped = value.strip()
-    if not stripped:
-        return value
-    if stripped[0] in ('"', "[", "{"):
+    current = value
+    for _ in range(max_depth):
+        if not isinstance(current, str):
+            break
+        stripped = current.strip()
+        if not stripped or stripped[0] not in ('"', "[", "{"):
+            break
         try:
-            return json.loads(stripped)
+            current = json.loads(stripped)
         except (ValueError, TypeError):
-            return value
-    return value
+            break
+    return current
 
 
 def _extract_user_request(raw_content: str) -> str:
@@ -153,6 +171,8 @@ def _extract_user_request(raw_content: str) -> str:
         return match.group(1).strip()
     cleaned = re.sub(r"<ADDITIONAL_METADATA>.*?</ADDITIONAL_METADATA>", "", raw_content, flags=re.DOTALL)
     cleaned = re.sub(r"<USER_SETTINGS_CHANGE>.*?</USER_SETTINGS_CHANGE>", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"<system_notification>.*?</system_notification>", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"<environment_details>.*?</environment_details>", "", cleaned, flags=re.DOTALL)
     return cleaned.strip()
 
 
@@ -187,17 +207,23 @@ def resolve_workspace_root(payload: dict[str, Any]) -> str | None:
     wpaths = payload.get("workspacePaths")
     if isinstance(wpaths, list) and len(wpaths) > 0 and isinstance(wpaths[0], str) and wpaths[0].strip():
         return wpaths[0].strip()
+    for k in ("workspacePath", "cwd", "workingDirectory"):
+        val = payload.get(k)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
     return None
 
 
 def _compute_file_probe(raw_path: str, workspace_root: str | None = None) -> dict[str, Any]:
     try:
         p = Path(raw_path)
-        if not p.is_file():
-            if not p.is_absolute() and workspace_root:
-                candidate = Path(workspace_root) / p
-                if candidate.is_file():
-                    p = candidate
+        # Prioritize workspace_root resolution for relative paths before checking local disk
+        if not p.is_absolute() and workspace_root:
+            candidate = Path(workspace_root) / p
+            if candidate.is_file():
+                p = candidate
+            elif candidate.exists():
+                p = candidate
         if not p.exists() or not p.is_file():
             return {"exists": False, "size_bytes": None, "sha256_12": None, "resolved_path": str(p)}
         size = p.stat().st_size
@@ -312,10 +338,18 @@ def _summarize_tool_call(tc: dict[str, Any]) -> tuple[str, str, str | None, list
     mutated_path: str | None = None
     symbols: list[str] = []
     if name in MUTATING_DIRECT_TOOLS:
-        p = _unwrap_json_arg(args.get("Path") or args.get("path") or "")
+        p = _unwrap_json_arg(args.get("Path") or args.get("path") or args.get("destination") or "")
         if isinstance(p, str) and p.strip():
             mutated_path = p.strip()
-        code_body = str(args.get("Replacement") or args.get("Content") or args.get("Target") or "")
+        code_body = str(
+            args.get("Replacement")
+            or args.get("replacement")
+            or args.get("Content")
+            or args.get("content")
+            or args.get("Target")
+            or args.get("target")
+            or ""
+        )
         symbols = _extract_code_symbols(code_body)
         return name, f"path={mutated_path or '?'}", mutated_path, symbols
 
@@ -326,10 +360,18 @@ def _summarize_tool_call(tc: dict[str, Any]) -> tuple[str, str, str | None, list
         if not isinstance(inner, dict):
             inner = {}
         if srv == "filesystem" and tname in MUTATING_MCP_TOOLS:
-            p = _unwrap_json_arg(inner.get("path") or inner.get("destination") or "")
+            p = _unwrap_json_arg(inner.get("path") or inner.get("Path") or inner.get("destination") or "")
             if isinstance(p, str) and p.strip():
                 mutated_path = p.strip()
-            code_body = str(inner.get("replacement") or inner.get("content") or inner.get("target") or "")
+            code_body = str(
+                inner.get("replacement")
+                or inner.get("Replacement")
+                or inner.get("content")
+                or inner.get("Content")
+                or inner.get("target")
+                or inner.get("Target")
+                or ""
+            )
             symbols = _extract_code_symbols(code_body)
         return f"mcp:{srv}/{tname}", _truncate_text(json.dumps(inner, ensure_ascii=False), 90), mutated_path, symbols
 
@@ -394,11 +436,29 @@ def _process_step(state: dict[str, Any], obj: dict[str, Any], workspace_root: st
     if stype == "GENERIC":
         pending = state.get("pending_ask_questions")
         if isinstance(pending, dict) and int(step_idx) > int(pending.get("step_index", -1)):
-            answers = [m.group(1).strip() for m in ANSWER_LINE_RE.finditer(content)]
-            if answers:
+            lines = content.splitlines()
+            current_tag = None
+            current_body: list[str] = []
+            parsed_answers: list[str] = []
+            for line in lines:
+                tag_match = re.match(r"^(A\d+)\s*:\s*(.*)$", line.strip())
+                if tag_match:
+                    if current_tag is not None:
+                        parsed_answers.append(f"{current_tag}: " + " ".join(current_body).strip())
+                    current_tag = tag_match.group(1)
+                    current_body = [tag_match.group(2)]
+                elif current_tag is not None and line.strip():
+                    current_body.append(line.strip())
+            if current_tag is not None:
+                parsed_answers.append(f"{current_tag}: " + " ".join(current_body).strip())
+
+            if not parsed_answers:
+                parsed_answers = [m.group(1).strip() for m in ANSWER_LINE_RE.finditer(content)]
+
+            if parsed_answers:
                 q_list = pending.get("questions", [])
                 pairs = []
-                for idx, ans in enumerate(answers):
+                for idx, ans in enumerate(parsed_answers):
                     q_txt = q_list[idx] if idx < len(q_list) else f"Q{idx + 1}"
                     pairs.append({"q": _truncate_text(str(q_txt), 200), "a": _truncate_text(ans, 260)})
                 qa_entry = {
@@ -421,7 +481,7 @@ def _process_step(state: dict[str, Any], obj: dict[str, Any], workspace_root: st
         state["last_planner_response"] = {
             "step_index": step_idx,
             "has_tool_calls": has_tc,
-            "content": content[:800] if content else "",
+            "content": content[:4096] if content else "",
         }
         if not has_tc:
             return
@@ -636,6 +696,8 @@ def build_recovery_capsule(
             f_lines.append(
                 f"- `{raw_p}` (edits={item.get('edit_count')}, last_step={item.get('last_step')}, {status}{sym_desc})"
             )
+        if len(sorted_files) > 10:
+            f_lines.append(f"- ...and {len(sorted_files) - 10} earlier modified file(s); see transcript")
         sections.append(
             _cap_section("## Files Modified in This Session (Re-Read Before Further Edits)\n" + "\n".join(f_lines), 1000)
         )
@@ -735,10 +797,9 @@ def handle_stop(payload: dict[str, Any]) -> dict[str, Any]:
     state = sync_state_from_transcript(state, tpath, workspace_root=w_root)
 
     checkpoints: list[int] = state.get("checkpoints_seen", [])
-    total_steps = int(state.get("total_steps_seen", 0))
     last_resp = state.get("last_planner_response")
 
-    if not checkpoints or total_steps <= 5 or not isinstance(last_resp, dict):
+    if not checkpoints or not isinstance(last_resp, dict):
         save_state_atomic(state_file, state)
         return {"decision": "allow"}
 
@@ -754,7 +815,7 @@ def handle_stop(payload: dict[str, Any]) -> dict[str, Any]:
     if (
         already_blocked < 1
         and not has_tools
-        and resp_step > latest_cp
+        and latest_cp < resp_step <= latest_cp + 4
         and BOOTSTRAP_AMNESIA_RE.search(resp_content)
     ):
         blocks_map[cp_key] = already_blocked + 1
@@ -834,7 +895,9 @@ def main(argv: list[str] | None = None) -> int:
     payload: dict[str, Any] = {}
     state_dir: Path | None = None
     try:
-        raw_stdin = sys.stdin.read().strip()
+        raw_stdin = ""
+        if not sys.stdin.isatty():
+            raw_stdin = sys.stdin.read().strip()
         if raw_stdin:
             parsed = json.loads(raw_stdin)
             if isinstance(parsed, dict):

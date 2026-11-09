@@ -496,6 +496,148 @@ class TestCompactionGuard(unittest.TestCase):
         self.assertEqual(cg.main(["--help"]), 0)
         self.assertEqual(cg.main(["--version"]), 0)
 
+    def test_expanded_amnesia_evasion_variants(self) -> None:
+        """Adversarial check: flexible English and Indonesian amnesia questions must be caught."""
+        evasions = [
+            "What can I help you with today?",
+            "What can I help you with?",
+            "How may I help you today?",
+            "What role would you like me to play?",
+            "What role do you want me to take?",
+            "What is my role in this project?",
+            "What is my role for this conversation?",
+            "Which role would you like me to assume?",
+            "Apa peran saya dalam proyek ini?",
+            "Peran apa yang harus saya ambil dalam proyek ini?",
+            "Saya harus bertugas sebagai apa?",
+            "Apakah ada yang bisa saya bantu hari ini?",
+            "Bagaimana saya bisa membantu Anda hari ini?",
+            "Apa yang bisa saya bantu untuk Anda?",
+            "Ada yang bisa dibantu?",
+            "Mohon arahan peran yang harus saya jalankan",
+            "Peran apa yang Anda inginkan untuk saya jalankan?",
+        ]
+        for phrase in evasions:
+            self.assertTrue(
+                bool(cg.BOOTSTRAP_AMNESIA_RE.search(phrase)),
+                f"Evasion variant failed to be caught: {phrase!r}",
+            )
+
+    def test_relative_path_collision_with_plugin_root(self) -> None:
+        """Relative path file probing must resolve against workspace_root even if identical file exists in cwd."""
+        # Create workspace with a file named README.md containing distinct content
+        ws_readme = Path(self.tmp_dir.name) / "README.md"
+        ws_readme.write_text("CUSTOM_WORKSPACE_README_CONTENT_FOR_TEST\n", encoding="utf-8")
+
+        # Save and restore current cwd
+        orig_cwd = os.getcwd()
+        plugin_root = str(SCRIPT_DIR.parent)
+        try:
+            os.chdir(plugin_root)
+            probe = cg._compute_file_probe("README.md", workspace_root=self.tmp_dir.name)
+            self.assertTrue(probe["exists"])
+            self.assertEqual(probe["size_bytes"], ws_readme.stat().st_size)
+            self.assertEqual(Path(probe["resolved_path"]).resolve(), ws_readme.resolve())
+        finally:
+            os.chdir(orig_cwd)
+
+    def test_multiline_ask_question_answers(self) -> None:
+        """Multi-line ask_question answers must be preserved across paragraph breaks."""
+        q_json = json.dumps([{"question": "Confirm architecture?", "options": ["Option A", "Option B"]}])
+        self._append_steps(
+            [
+                {"step_index": 0, "source": "USER_EXPLICIT", "type": "USER_INPUT", "content": "setup"},
+                {
+                    "step_index": 1,
+                    "source": "MODEL",
+                    "type": "PLANNER_RESPONSE",
+                    "tool_calls": [{"name": "ask_question", "args": {"questions": q_json}}],
+                },
+                {
+                    "step_index": 2,
+                    "source": "MODEL",
+                    "type": "GENERIC",
+                    "content": (
+                        "Created At: 2026-11-09\n"
+                        "Completed At: 2026-11-09\n"
+                        "A1: Option A: Microservice approach\n"
+                        "Additional architectural specification:\n"
+                        "- Service mesh with mutual TLS enabled\n"
+                        "- Redis cache layer for session store"
+                    ),
+                },
+            ]
+        )
+        state = cg._default_state()
+        state = cg.sync_state_from_transcript(state, str(self.transcript_path), workspace_root=self.tmp_dir.name)
+        self.assertEqual(len(state["qa_decisions"]), 1)
+        qa = state["qa_decisions"][0]
+        answer_text = qa["pairs"][0]["a"]
+        self.assertIn("Microservice approach", answer_text)
+        self.assertIn("Service mesh with mutual TLS", answer_text)
+
+    def test_code_symbol_extraction_multilanguage_and_modifiers(self) -> None:
+        """Extract code symbols across Rust, Go, Java/C#, and typed TS arrow functions."""
+        polyglot_code = (
+            "// Rust\n"
+            "pub struct Position { pub x: f64 }\n"
+            "pub async fn calculate_metrics() -> f64 { 0.0 }\n"
+            "pub(crate) trait Validator { fn validate(&self); }\n"
+            "pub enum OrderType { Buy, Sell }\n"
+            "// Go\n"
+            "func (s *Server) StartEngine() error { return nil }\n"
+            "type Config struct { Port int }\n"
+            "// TypeScript\n"
+            "export const handleRequest: RequestHandler = (req, res) => {}\n"
+            "export function* idGenerator() {}\n"
+            "// Java / C#\n"
+            "public class OrderService {\n"
+            "    public void executeOrder() {}\n"
+            "}\n"
+        )
+        symbols = cg._extract_code_symbols(polyglot_code)
+        self.assertIn("Position", symbols)
+        self.assertIn("calculate_metrics", symbols)
+        self.assertIn("Validator", symbols)
+        self.assertIn("OrderType", symbols)
+        self.assertIn("StartEngine", symbols)
+        self.assertIn("Config", symbols)
+        self.assertIn("handleRequest", symbols)
+        self.assertIn("idGenerator", symbols)
+        self.assertIn("OrderService", symbols)
+
+    def test_stop_hook_early_checkpoint_and_late_turn_isolation(self) -> None:
+        """Stop hook must protect early checkpoints (step <= 5) and avoid false-positives on late turns (> 4 steps)."""
+        # Scenario A: Early checkpoint at step 2, model attempts amnesia at step 3 -> MUST BLOCK
+        early_payload = self._base_payload({"terminationReason": "NO_TOOL_CALL"})
+        self._append_steps(
+            [
+                {"step_index": 0, "source": "USER_EXPLICIT", "type": "USER_INPUT", "content": "init"},
+                {"step_index": 1, "source": "SYSTEM", "type": "CHECKPOINT", "content": "# Resuming early"},
+                {
+                    "step_index": 2,
+                    "source": "MODEL",
+                    "type": "PLANNER_RESPONSE",
+                    "content": "What can I help you with today?",
+                },
+            ]
+        )
+        early_stop = cg.handle_stop(early_payload)
+        self.assertEqual(early_stop["decision"], "continue")
+
+        # Scenario B: 10 steps later (step 12), agent finishes work and emits polite control -> MUST ALLOW
+        self._append_steps(
+            [
+                {"step_index": 3, "source": "MODEL", "type": "PLANNER_RESPONSE", "tool_calls": [{"name": "read_file", "args": {"Path": "server.py"}}]},
+                {"step_index": 4, "source": "MODEL", "type": "GENERIC", "content": "read done"},
+                {"step_index": 5, "source": "MODEL", "type": "PLANNER_RESPONSE", "tool_calls": [{"name": "edit_file", "args": {"Path": "server.py", "Replacement": "PORT = 8080"}}]},
+                {"step_index": 6, "source": "MODEL", "type": "GENERIC", "content": "edit done"},
+                {"step_index": 7, "source": "MODEL", "type": "PLANNER_RESPONSE", "content": "Refactoring is complete. How can I help you today?"},
+            ]
+        )
+        late_stop = cg.handle_stop(early_payload)
+        self.assertEqual(late_stop["decision"], "allow")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

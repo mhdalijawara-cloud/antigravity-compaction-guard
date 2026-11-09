@@ -1,6 +1,6 @@
 {
   "name": "antigravity-compaction-guard",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Deterministic lifecycle hook engine for Google Antigravity that prevents agent context amnesia, preserves modified code symbols, and audits disk state across auto-compaction checkpoints.",
   "main": "bin/install.js",
   "bin": {

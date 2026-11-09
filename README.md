@@ -125,7 +125,7 @@ git clone https://github.com/mhdalijawara-cloud/antigravity-compaction-guard.git
 ## Diagnostics and Testing
 
 ```bash
-# Run the test suite (16 tests, mock JSONL transcripts)
+# Run the test suite (21 tests, mock JSONL transcripts)
 python ./scripts/test_compaction_guard.py -v
 
 # Inspect session state, runway meter, and recovery capsule for any transcript
