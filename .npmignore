@@ -1,6 +1,6 @@
-__pycache__/
+**/__pycache__/**
 *.py[cod]
 *.pyc
 *.tmp*
-.system_generated/
-.github/
+.system_generated/**
+.github/**

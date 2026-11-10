@@ -40,7 +40,9 @@
     "src",
     "assets",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "!**/__pycache__/**",
+    "!**/*.py[cod]"
   ],
   "engines": {
     "node": ">=16.0.0"
