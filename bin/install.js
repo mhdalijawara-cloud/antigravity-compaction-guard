@@ -12,7 +12,7 @@ const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
 
-const VERSION = '1.5.1';
+const VERSION = '1.5.2';
 const PACKAGE_ROOT = path.resolve(__dirname, '..');
 
 function printBanner() {
