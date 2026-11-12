@@ -310,67 +310,67 @@ python ./scripts/compaction_guard.py purge --dry-run
 
 #### 1. Unit & Adversarial Test Suite (33 Tests)
 
-Eksekusi suite pengujian unit dan adversarial lengkap:
+Execute the comprehensive unit and adversarial test suite:
 
 ```bash
 python ./scripts/test_compaction_guard.py -v
 ```
 
-Seluruh 33 pengujian unit dipetakan secara eksplisit terhadap kode perbaikan dan bab evaluasi dalam [`kritik.md`](file:///C:/Muhammad%20Ali%20Jawara%20Wiratama/kritik.md):
+All 33 unit test cases validate core engine invariants across failure domains:
 
-| # | Test Function Name | Kode Perbaikan Kritik | Seksi `kritik.md` | Cakupan Validasi & Invarian Sistem |
-| :---: | :--- | :---: | :---: | :--- |
-| 1 | `test_two_phase_mutation_confirmation_and_rejection` | **P0-01** | §1.3, §5.1 | Staging mutasi di `PLANNER_RESPONSE`, verifikasi status `status != ERROR`, penolakan mutasi saat tool gagal. |
-| 2 | `test_dual_digest_baseline_diff_and_external_drift` | **P0-02** | §2.5, §5.5 | Audit dual-digest SHA-256 64-char baseline vs observed, klasifikasi status `UNCHANGED` vs `MODIFIED_EXTERNALLY`. |
-| 3 | `test_file_lock_concurrency_mutual_exclusion` | **P0-03** | §5.3 | Concurrency lock file OS (`msvcrt.locking` / `fcntl.flock`) mencegah lost updates proses hook konkuren. |
-| 4 | `test_installer_verify_strict_mode` | **P0-04, P0-05** | §4.1, §4.3 | Verifikasi instalasi ketat `--verify`, deteksi interpreter dinamis, validasi manifest, dan mandatory exit code non-zero. |
-| 5 | `test_structured_provenance_enclosure` | **P0-06** | §5.14 | Kapsul pemulihan memisahkan direktif tepercaya dari data transcript pasif (`<<<HISTORICAL_...>>>`) untuk isolasi prompt. |
-| 6 | `test_state_corruption_quarantine_backup_and_transcript_recovery` | **P1-01** | §5.2 | Karantina otomatis file state korup ke `.corrupt.<timestamp>`, fallback atomik `.bak`, dan self-healing dari transcript. |
-| 7 | `test_workspace_containment_and_path_traversal_defense` | **P1-02** | §5.4 | Boundary containment via `is_path_within_workspace()`, pemblokiran path traversal, masking path luar ke basename. |
-| 8 | `test_code_symbol_extraction_java_csharp_methods_and_sampling_bounds` | **P1-03** | §5.6 | Ekstraksi simbol Java/C# dengan modifier chain (`synchronized`, `native`, `async Task<T>`) dan batas sampling 64KB. |
-| 9 | `test_runway_telemetry_heuristic_labeling` | **P1-04** | §2.8, §5.8 | Telemetry runway byte transcript dengan disclaimer ketidakpastian dan label heuristik eksplisit. |
-| 10 | `test_amnesia_classifier_confusion_matrix_and_metrics` | **P1-05** | §5.10 | Validasi confusion matrix regex amnesia pada dataset berlabel 30+ sampel (Recall $\ge 95\%$, FPR $\le 5\%$). |
-| 11 | `test_runtime_subprocess_integration_harness` | **P1-07** | §7.1, §7.5 | Subprocess runtime integration harness streaming JSON payloads over stdin/stdout. |
-| 12 | `test_purge_cli_and_retention_policy` | **P1-08** | §3.3, §4.5 | Bound memory retention & pembersihan file kedaluwarsa (`.bak`, `.tmp`, `.corrupt`) via CLI `purge`. |
-| 13 | `test_zero_overhead_when_no_checkpoint` | **P0-01, §2.3** | §2.3 | Emisi payload kosong `{}` pada turn normal (zero injected prompt token tax). |
-| 14 | `test_post_compaction_capsule_injection_and_idempotency` | **P0-06, §5.14** | §5.14 | Injeksi kapsul pemulihan bukti sesi tepat 1 kali pasca-kompaksi (idempotent). |
-| 15 | `test_stop_hook_blocks_amnesia_bootstrap_once_only` | **P1-05, §5.12** | §5.12 | Circuit breaker hook Stop memblokir query reset amnesia 1 kali pasca-checkpoint & mengizinkan terminasi normal. |
-| 16 | `test_windows_cmd_subprocess_unicode_safety` | **P1-07, §5.15** | §5.15 | Keamanan encoding UTF-8 pada eksekusi hook subprocess shell Windows tanpa `UnicodeEncodeError`. |
-| 17 | `test_multi_compaction_synthetic_replay` | **P1-08, §5.13** | §5.13 | Replay multi-stage checkpoint sintetik memverifikasi persistensi ledger dan pembatasan token budget ($< 5.800$ char). |
-| 18 | `test_amnesia_evasion_variants_and_negative_controls` | **P1-05, §5.10** | §5.10 | Uji adversarial varian parafrase pertanyaan peran bahasa Indonesia/Inggris dan kontrol negatif valid. |
-| 19 | `test_windows_path_case_deduplication` | **P1-02, §5.4** | §5.4 | Deduplikasi casing path Windows (penggabungan drive letter case berbeda ke 1 entri kanonikal). |
-| 20 | `test_relative_path_workspace_probing` | **P1-02, §5.4** | §5.4 | Resolusi dan probing path relatif terhadap `workspacePaths` secara akurat. |
-| 21 | `test_transcript_streaming_and_incomplete_eof` | **P1-01, §5.2** | §5.2 | Ketahanan streaming reader terhadap baris JSONL tidak lengkap di akhir file (EOF race condition). |
-| 22 | `test_secondary_tail_deep_checkpoint_detection` | **P1-01, §5.2** | §5.2 | Deteksi CHECKPOINT step sekunder yang berada $> 6$ baris sebelum EOF transcript. |
-| 23 | `test_mutated_files_capped_at_max` | **P1-08, §5.13** | §5.13 | Pembatasan memori mutasi file pada ambang batas aman `MAX_MUTATED_FILES` (80 file). |
-| 24 | `test_atomic_save_retry_and_temp_cleanup` | **P1-01, §5.2** | §5.2 | Pembersihan file swap sementara `.tmp` setelah penyimpanan atomik selesai. |
-| 25 | `test_code_symbol_extraction_python_and_ts` | **P1-03, §5.6** | §5.6 | Ekstraksi simbol kelas, fungsi, dan interface pada kode Python dan TypeScript. |
-| 26 | `test_runway_meter_thresholds` | **P1-04, §5.8** | §5.8 | Validasi ambang batas runway (NORMAL, WARNING $\ge 650$ KB, CRITICAL $\ge 720$ KB). |
-| 27 | `test_universal_startup_amnesia_patterns` | **P1-05, §5.10** | §5.10 | Deteksi sapaan startup onboarding universal ("How can I help you today?", dll.). |
-| 28 | `test_cli_flags_non_blocking` | **P1-07, §5.15** | §5.15 | Flag CLI (`--help`, `--version`, `doctor`, `status`) berjalan non-blocking tanpa menunggu stdin. |
-| 29 | `test_expanded_amnesia_evasion_variants` | **P1-05, §5.10** | §5.10 | Deteksi varian evasif lanjutan pertanyaan peran multi-bahasa. |
-| 30 | `test_relative_path_collision_with_plugin_root` | **P1-02, §5.4** | §5.4 | Isolasi path probing agar tidak mengalami tabrakan dengan file bernama sama di root plugin. |
-| 31 | `test_multiline_ask_question_answers` | **P1-01, §5.2** | §5.2 | Preservasi format baris multi-line pada jawaban interaktif `ask_question`. |
-| 32 | `test_code_symbol_extraction_multilanguage_and_modifiers` | **P1-03, §5.6** | §5.6 | Ekstraksi simbol lintas bahasa (Rust `fn`/`struct`, Go `func`/`type`, Java/C#, TS arrow functions). |
-| 33 | `test_stop_hook_early_checkpoint_and_late_turn_isolation` | **P1-05, §5.12** | §5.12 | Isolasi hook Stop untuk checkpoint awal (step $\le 5$) dan pencegahan false-positive pada turn lanjut ($> 4$ langkah). |
+| # | Test Function Name | Subsystem / Focus | Validation Scope & System Invariant |
+| :---: | :--- | :---: | :--- |
+| 1 | `test_two_phase_mutation_confirmation_and_rejection` | Mutation Integrity | Stages mutations at `PLANNER_RESPONSE`, confirms on `status != ERROR`, and rejects staging on tool failure. |
+| 2 | `test_dual_digest_baseline_diff_and_external_drift` | Disk Auditing | 64-char SHA-256 baseline vs observed digest comparison; classifies `UNCHANGED` vs `MODIFIED_EXTERNALLY`. |
+| 3 | `test_file_lock_concurrency_mutual_exclusion` | Concurrency Control | Cross-process OS file locking (`msvcrt.locking` / `fcntl.flock`) preventing lost updates during hook races. |
+| 4 | `test_installer_verify_strict_mode` | Setup Integrity | Strict `--verify` installer mode, dynamic interpreter detection, manifest validation, and non-zero exit codes. |
+| 5 | `test_structured_provenance_enclosure` | Prompt Isolation | Recovery capsule strictly isolates trusted directives from untrusted transcript extracts via `<<<HISTORICAL_...>>>`. |
+| 6 | `test_state_corruption_quarantine_backup_and_transcript_recovery` | State Resilience | Automatic quarantine of corrupt state files to `.corrupt.<timestamp>`, atomic `.bak` fallback, and self-healing reconstruction. |
+| 7 | `test_workspace_containment_and_path_traversal_defense` | Security Boundary | Workspace containment via `is_path_within_workspace()`, path traversal blocking, and external path redaction. |
+| 8 | `test_code_symbol_extraction_java_csharp_methods_and_sampling_bounds` | AST & Symbol Extraction | Extracts Java/C# method signatures across complex modifier chains (`synchronized`, `async Task<T>`) within 64KB limits. |
+| 9 | `test_runway_telemetry_heuristic_labeling` | Runway Telemetry | Transcript byte runway telemetry with explicit heuristic indicators and uncertainty disclosures. |
+| 10 | `test_amnesia_classifier_confusion_matrix_and_metrics` | Amnesia Classifier | Amnesia regex confusion matrix validation on a labeled 30+ sample dataset (Recall $\ge 95\%$, FPR $\le 5\%$). |
+| 11 | `test_runtime_subprocess_integration_harness` | Runtime Harness | Subprocess runtime integration harness streaming JSON payloads safely over stdin/stdout. |
+| 12 | `test_purge_cli_and_retention_policy` | Retention Policy | Bounded disk retention and cleanup of expired temporary files (`.bak`, `.tmp`, `.corrupt`) via the `purge` CLI. |
+| 13 | `test_zero_overhead_when_no_checkpoint` | Overhead Invariant | Empty payload `{}` emission on normal turns without compaction (zero injected prompt token tax). |
+| 14 | `test_post_compaction_capsule_injection_and_idempotency` | Recovery Lifecycle | Injects structured provenance recovery capsule exactly once post-checkpoint (strictly idempotent). |
+| 15 | `test_stop_hook_blocks_amnesia_bootstrap_once_only` | Circuit Breaker | Stop hook blocks amnesia reset queries exactly once post-checkpoint while permitting normal completion. |
+| 16 | `test_windows_cmd_subprocess_unicode_safety` | Cross-Platform Safety | UTF-8 encoding safety across Windows cmd subprocess executions without raising `UnicodeEncodeError`. |
+| 17 | `test_multi_compaction_synthetic_replay` | Stress Testing | Multi-stage checkpoint synthetic replay verifying ledger persistence and capsule budget bounds ($< 5,800$ chars). |
+| 18 | `test_amnesia_evasion_variants_and_negative_controls` | Adversarial Defense | Adversarial checks against paraphrased role inquiry variants and benign negative controls. |
+| 19 | `test_windows_path_case_deduplication` | Path Normalization | Windows path case deduplication merging differing drive letter cases into a single canonical entry. |
+| 20 | `test_relative_path_workspace_probing` | Path Resolution | Accurate resolution and probing of relative tool call paths against active `workspacePaths`. |
+| 21 | `test_transcript_streaming_and_incomplete_eof` | Parser Resilience | Reader resilience against trailing incomplete JSONL lines at EOF due to concurrent write races. |
+| 22 | `test_secondary_tail_deep_checkpoint_detection` | Checkpoint Detection | Secondary deep checkpoint detection locating `CHECKPOINT` steps occurring $> 6$ lines before EOF. |
+| 23 | `test_mutated_files_capped_at_max` | Memory Bound | Bounded state mutated files tracking capped at safe thresholds (`MAX_MUTATED_FILES = 80`). |
+| 24 | `test_atomic_save_retry_and_temp_cleanup` | Storage Safety | Reliable cleanup of temporary swap files (`.tmp`) after atomic save cycles complete. |
+| 25 | `test_code_symbol_extraction_python_and_ts` | AST & Symbol Extraction | Extracts top-level and indented classes, functions, and interfaces across Python and TypeScript. |
+| 26 | `test_runway_meter_thresholds` | Telemetry Thresholds | Validates runway alert bands (NORMAL, WARNING $\ge 650$ KB, CRITICAL $\ge 720$ KB). |
+| 27 | `test_universal_startup_amnesia_patterns` | Amnesia Detection | Detects universal multi-lingual startup greetings and onboarding reset queries. |
+| 28 | `test_cli_flags_non_blocking` | CLI Architecture | CLI inspection flags (`--help`, `--version`, `doctor`, `status`) execute non-blocking without waiting on stdin. |
+| 29 | `test_expanded_amnesia_evasion_variants` | Adversarial Defense | Detection of sophisticated multi-lingual evasive phrasing for role and identity queries. |
+| 30 | `test_relative_path_collision_with_plugin_root` | Path Isolation | Isolates path probing against collisions with identical filenames located at the plugin root. |
+| 31 | `test_multiline_ask_question_answers` | Parser Fidelity | Preserves multi-line formatting across user interactive `ask_question` decision captures. |
+| 32 | `test_code_symbol_extraction_multilanguage_and_modifiers` | AST & Symbol Extraction | Extracts symbols across Rust (`fn`/`struct`), Go (`func`/`type`), Java/C#, and typed TS arrow functions. |
+| 33 | `test_stop_hook_early_checkpoint_and_late_turn_isolation` | Circuit Breaker | Protects early checkpoints (step $\le 5$) while preventing false-positive blocks on late turns ($> 4$ steps). |
 
 #### 2. Shadow Differential Parity Test Suite (5 Tests)
 
-Memvalidasi 100% paritas perilaku logis dan struktur state antara modul domain kanonikal [`src/`](./src/) dan fasad monolitik [`scripts/compaction_guard.py`](./scripts/compaction_guard.py):
+Validate 100% behavioral parity and state schema synchronization between the modular domain package [`src/`](./src/) and the monolithic runtime facade [`scripts/compaction_guard.py`](./scripts/compaction_guard.py):
 
 ```bash
 python ./scripts/test_differential_parity.py -v
 ```
 
-Pengujian diferensial bayangan menjamin *zero-drift* mutlak:
+Differential tests assert absolute zero-drift across:
 
-| # | Test Function Name | Kode Perbaikan Kritik | Seksi `kritik.md` | Cakupan Validasi & Invarian Sistem |
-| :---: | :--- | :---: | :---: | :--- |
-| 1 | `test_default_state_differential_parity` | **P2-01** | §1.2 | Paritas schema kontrak data terpusat, nilai default, dan formal `validate_state()`. |
-| 2 | `test_symbol_extraction_differential_parity` | **P2-02** | §1.1 | Paritas ekstraksi simbol kode antara modul domain `src/` dan fasad `compaction_guard.py`. |
-| 3 | `test_workspace_confinement_differential_parity` | **P2-03** | §1.1 | Paritas validasi boundary containment dan canonicalization path. |
-| 4 | `test_multi_step_trajectory_differential_parity` | **P2-04** | §1.1, §1.3 | Paritas eksekusi replay trajectory lengkap multi-step dan generasi kapsul pemulihan. |
-| 5 | `test_stop_hook_amnesia_differential_parity` | **P2-05** | §1.4 | Paritas keputusan pencegahan amnesia pada Stop hook antara modul domain dan fasad. |
+| # | Test Function Name | Target Domain | Parity Assertion & Invariant Scope |
+| :---: | :--- | :---: | :--- |
+| 1 | `test_default_state_differential_parity` | State Schema | Complete parity of default state schemas, contracts, and formal `validate_state()` rules. |
+| 2 | `test_symbol_extraction_differential_parity` | Symbol Extraction | Identical code symbol extraction results across multi-language source files. |
+| 3 | `test_workspace_confinement_differential_parity` | Security Boundary | 100% match on workspace containment checks, traversal blocking, and path canonicalization. |
+| 4 | `test_multi_step_trajectory_differential_parity` | Lifecycle Replay | Identical ledger mutations and recovery capsule synthesis across multi-step trajectory replays. |
+| 5 | `test_stop_hook_amnesia_differential_parity` | Circuit Breaker | 100% identical Stop hook decisions and payload generation on amnesia queries. |
 
 ---
 
